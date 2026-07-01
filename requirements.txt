@@ -1,0 +1,2 @@
+# Keine externen Abhaengigkeiten - die App nutzt nur die Python-Standardbibliothek.
+# Diese Datei signalisiert Railway/Nixpacks, dass es sich um ein Python-Projekt handelt.
