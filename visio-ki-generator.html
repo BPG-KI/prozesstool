@@ -808,13 +808,24 @@ function buildVsdx(model, L){
       `<Text>${xmlEsc(text)}</Text></Shape>`;
   }
   function lineShape(sid, x1,y1,x2,y2,text){
-    // 1-D-Shape: Begin/End legen Lage und lokale Breite/Hoehe fest. Die Geometrie
-    // muss deshalb in lokalen, relativen Koordinaten (RelMoveTo/RelLineTo, 0..1)
-    // angegeben werden - nicht in absoluten Seitenkoordinaten, sonst landet der
-    // Pfad ausserhalb des sichtbaren Bereichs und Linie/Pfeilspitze verschwinden.
+    // Ein 1-D-Shape leitet PinX/PinY/Width/Height/Angle in echten Visio-Dateien per
+    // GUARD()-Formel von seiner Verbinder-Master-Vorlage aus Begin/End ab. Unsere
+    // Shapes haben keinen Master, also fehlen diese Formeln - ohne sie bleiben
+    // Width/Height/PinX/PinY auf 0 und die Linie kollabiert unsichtbar auf einen
+    // Punkt. Wir berechnen den Transform deshalb selbst, genau wie es die
+    // Standard-Formel tun wuerde, und liefern damit literale Werte statt Formeln.
+    const X1=x1/PX, Y1=(L.pageH-y1)/PX, X2=x2/PX, Y2=(L.pageH-y2)/PX;
+    const dx=X2-X1, dy=Y2-Y1;
+    const width=Math.max(Math.hypot(dx,dy), 0.001);
+    const angle=Math.atan2(dy,dx);
+    const pinX=(X1+X2)/2, pinY=(Y1+Y2)/2;
     return `<Shape ID="${sid}" Type="Shape" LineStyle="0" FillStyle="0" TextStyle="0">`+
-      `<Cell N="BeginX" V="${toX(x1)}"/><Cell N="BeginY" V="${toY(y1)}"/>`+
-      `<Cell N="EndX" V="${toX(x2)}"/><Cell N="EndY" V="${toY(y2)}"/>`+
+      `<Cell N="PinX" V="${pinX.toFixed(4)}"/><Cell N="PinY" V="${pinY.toFixed(4)}"/>`+
+      `<Cell N="Width" V="${width.toFixed(4)}"/><Cell N="Height" V="0"/>`+
+      `<Cell N="LocPinX" V="${(width/2).toFixed(4)}"/><Cell N="LocPinY" V="0"/>`+
+      `<Cell N="Angle" V="${angle.toFixed(6)}"/>`+
+      `<Cell N="BeginX" V="${X1.toFixed(4)}"/><Cell N="BeginY" V="${Y1.toFixed(4)}"/>`+
+      `<Cell N="EndX" V="${X2.toFixed(4)}"/><Cell N="EndY" V="${Y2.toFixed(4)}"/>`+
       `<Cell N="LineColor" V="#5A5A5A"/><Cell N="LineWeight" V="0.01041666666666667"/><Cell N="EndArrow" V="5"/><Cell N="EndArrowSize" V="1"/>`+
       `<Section N="Geometry" IX="0"><Cell N="NoFill" V="1"/><Cell N="NoLine" V="0"/>`+
         `<Row T="RelMoveTo" IX="1"><Cell N="X" V="0"/><Cell N="Y" V="0"/></Row>`+
