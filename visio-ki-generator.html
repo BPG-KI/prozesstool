@@ -469,9 +469,24 @@ function connectorPath(a){
   const my=(sy+ey)/2; return `M${sx},${sy} L${sx},${my} L${ex},${my} L${ex},${ey}`;
 }
 function connectorLabelPos(a){
+  // Label auf dem laengeren der beiden geraden Segmente platzieren (nicht auf dem
+  // ggf. kurzen Versatz-Segment durch Auffaecherung) und mit festem Abstand direkt
+  // darueber (horizontales Segment) bzw. daneben (vertikales Segment) setzen, statt
+  // es mittig auf die Linie zu legen - das wirkte zuvor wie "irgendwo in der Naehe".
+  const GAP = 11;
   const [sx,sy]=a.start, [ex,ey]=a.end;
-  if(a.horiz){ return [ (sx+ex)/2, (sy+ey)/2 ]; }   // sitzt auf dem vertikalen Mittelsegment
-  return [ (sx+ex)/2, (sy+ey)/2 ];
+  if(a.horiz){
+    const mx=(sx+ex)/2;
+    const useStart = Math.abs(mx-sx) >= Math.abs(ex-mx);
+    const x = useStart ? (sx+mx)/2 : (mx+ex)/2;
+    const y = useStart ? sy : ey;
+    return [x, y-GAP];
+  }
+  const my=(sy+ey)/2;
+  const useStart = Math.abs(my-sy) >= Math.abs(ey-my);
+  const x = useStart ? sx : ex;
+  const y = useStart ? (sy+my)/2 : (my+ey)/2;
+  return [x+GAP, y];
 }
 
 /* ====================== SVG-Rendering ====================== */
@@ -589,6 +604,11 @@ function renderLayout(L, animate){
   });
 
   // Animation / Aufbau
+  // showConn() zeigt sowohl den Verbinder als auch sein Label-<g> an - die CSS-Regel
+  // .glabel{opacity:0} greift auf das Label selbst, nicht nur auf den Eltern-<g>.gconn>,
+  // daher muss 'show' zusaetzlich auf das verschachtelte .glabel gesetzt werden, sonst
+  // bleibt die Kantenbeschriftung dauerhaft unsichtbar.
+  const showConn = g=>{ g.classList.add('show'); const lbl=g.querySelector('.glabel'); if(lbl) lbl.classList.add('show'); };
   if(animate){
     let i=0;
     const stepN = ()=>{
@@ -597,14 +617,14 @@ function renderLayout(L, animate){
         setStatus(`Baue Diagramm … ${Math.min(i,nodeEls.length)}/${nodeEls.length} Shapes`);
         setTimeout(stepN, 90);
       }else{
-        connEls.forEach((g,j)=> setTimeout(()=>g.classList.add('show'), j*45));
+        connEls.forEach((g,j)=> setTimeout(()=>showConn(g), j*45));
         setTimeout(()=>setStatus('Fertig — '+nodeEls.length+' Shapes, '+connEls.length+' Verbinder'), connEls.length*45+120);
       }
     };
     stepN();
   }else{
     nodeEls.forEach(g=>g.classList.add('show'));
-    connEls.forEach(g=>g.classList.add('show'));
+    connEls.forEach(showConn);
     setStatus('Fertig — '+nodeEls.length+' Shapes, '+connEls.length+' Verbinder');
   }
 }
