@@ -4,4 +4,3 @@
 # Wird von start.py eingelesen; eine gesetzte Umgebungsvariable MISTRAL_API_KEY
 # hat Vorrang vor diesem Wert.
 
-MISTRAL_API_KEY = "NO7ossH62X3W7vLpqmH5grEFbnZK9GOI"
