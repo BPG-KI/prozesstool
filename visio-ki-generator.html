@@ -333,6 +333,7 @@ function validateModel(m){
     if(!n.id) errs.push('Knoten ohne id.');
     ids.add(n.id);
     if(!laneSet.has(n.lane)){ n.lane = m.lanes[0]; } // mild korrigieren
+    if(!n.label || !String(n.label).trim()) errs.push('Knoten "'+(n.id||'?')+'" hat kein Label.');
     if(n.type==='start') starts++;
     if(n.type==='end') ends++;
   });
@@ -430,7 +431,10 @@ function computeLayout(m){
     const bandCenter = laneTop[li] + laneHeight[li]/2;
     const stackSpan = (total-1) * G.SLOT;
     const cy = bandCenter - stackSpan/2 + k*G.SLOT;
-    const node = { id:n.id, label:n.label||'', type:n.type, lane:n.lane, x:cx, y:cy, w:sz.w, h:sz.h, col:c, li };
+    // Fallback auf die id, falls das Modell (z.B. durch eine lueckenhafte KI-Antwort)
+    // kein Label liefert - sonst rendert die Box lautlos leer, ohne dass es auffaellt.
+    const label = (n.label && String(n.label).trim()) ? n.label : n.id;
+    const node = { id:n.id, label, type:n.type, lane:n.lane, x:cx, y:cy, w:sz.w, h:sz.h, col:c, li };
     placed[n.id] = node; return node;
   });
 
