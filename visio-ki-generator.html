@@ -467,30 +467,77 @@ function anchors(s,t,sOff,eOff){
 }
 function clamp(v,min,max){ return v<min?min:(v>max?max:v); }
 function fanOffset(i,count){ return count<=1 ? 0 : (i-(count-1)/2) * Math.min(14, 30/count); }
-function connectorPath(a){
-  const [sx,sy]=a.start, [ex,ey]=a.end;
-  if(a.horiz){ const mx=(sx+ex)/2; return `M${sx},${sy} L${mx},${sy} L${mx},${ey} L${ex},${ey}`; }
-  const my=(sy+ey)/2; return `M${sx},${sy} L${sx},${my} L${ex},${my} L${ex},${ey}`;
+
+// Ein achsparalleles Liniensegment gegen ein (leicht gepolstertes) Rechteck testen.
+function rectFor(n){ return {x1:n.x-n.w/2, y1:n.y-n.h/2, x2:n.x+n.w/2, y2:n.y+n.h/2}; }
+function segIntersectsRect(x1,y1,x2,y2,r,pad){
+  pad = pad||0;
+  const rx1=r.x1-pad, ry1=r.y1-pad, rx2=r.x2+pad, ry2=r.y2+pad;
+  if(Math.abs(y1-y2)<0.01){
+    if(y1<ry1||y1>ry2) return false;
+    const lo=Math.min(x1,x2), hi=Math.max(x1,x2);
+    return hi>rx1 && lo<rx2;
+  }
+  if(Math.abs(x1-x2)<0.01){
+    if(x1<rx1||x1>rx2) return false;
+    const lo=Math.min(y1,y2), hi=Math.max(y1,y2);
+    return hi>ry1 && lo<ry2;
+  }
+  return false; // Verbinder sind ausschliesslich achsparallel
 }
-function connectorLabelPos(a){
-  // Label auf dem laengeren der beiden geraden Segmente platzieren (nicht auf dem
-  // ggf. kurzen Versatz-Segment durch Auffaecherung) und mit festem Abstand direkt
-  // darueber (horizontales Segment) bzw. daneben (vertikales Segment) setzen, statt
-  // es mittig auf die Linie zu legen - das wirkte zuvor wie "irgendwo in der Naehe".
-  const GAP = 11;
+function pathBlocked(points, obstacles){
+  for(let i=0;i<points.length-1;i++){
+    const [x1,y1]=points[i], [x2,y2]=points[i+1];
+    for(const n of obstacles){ if(segIntersectsRect(x1,y1,x2,y2, rectFor(n), 6)) return true; }
+  }
+  return false;
+}
+function basicPoints(a){
+  const [sx,sy]=a.start, [ex,ey]=a.end;
+  if(a.horiz){ const mx=(sx+ex)/2; return [[sx,sy],[mx,sy],[mx,ey],[ex,ey]]; }
+  const my=(sy+ey)/2; return [[sx,sy],[sx,my],[ex,my],[ex,ey]];
+}
+// Liefert die Verbinder-Route als Punktliste. Kreuzt der direkte (max. 1 Knick)
+// Pfad eine andere Box, wird stattdessen durch den freien Rand der Lane (oben/
+// unten) bzw. durch die Spalte links neben den Lane-Koepfen ausgewichen, statt
+// einfach durch die Box hindurchzuzeichnen.
+function routeEdge(s, t, a, L){
+  const basic = basicPoints(a);
+  const obstacles = L.nodes.filter(n=> n.id!==s.id && n.id!==t.id);
+  if(!pathBlocked(basic, obstacles)) return basic;
   const [sx,sy]=a.start, [ex,ey]=a.end;
   if(a.horiz){
-    const mx=(sx+ex)/2;
-    const useStart = Math.abs(mx-sx) >= Math.abs(ex-mx);
-    const x = useStart ? (sx+mx)/2 : (mx+ex)/2;
-    const y = useStart ? sy : ey;
-    return [x, y-GAP];
+    const li = s.li;
+    const candidates = [ L.laneTop[li]+16, L.laneTop[li]+L.laneHeight[li]-16 ];
+    for(const midY of candidates){
+      const detour=[[sx,sy],[sx,midY],[ex,midY],[ex,ey]];
+      if(!pathBlocked(detour, obstacles)) return detour;
+    }
+  }else{
+    const detour=[[sx,sy],[G.HEADER_W+10,sy],[G.HEADER_W+10,ey],[ex,ey]];
+    if(!pathBlocked(detour, obstacles)) return detour;
   }
-  const my=(sy+ey)/2;
-  const useStart = Math.abs(my-sy) >= Math.abs(ey-my);
-  const x = useStart ? sx : ex;
-  const y = useStart ? (sy+my)/2 : (my+ey)/2;
-  return [x+GAP, y];
+  return basic; // kein freier Ausweg gefunden - Original beibehalten
+}
+function polylinePath(points){
+  return points.map((p,i)=> (i===0?'M':'L')+p[0]+','+p[1]).join(' ');
+}
+function connectorLabelPos(points){
+  // Label auf dem laengsten geraden Segment platzieren (nicht auf einem kurzen
+  // Ausweich-/Auffaecherungs-Segment) und mit festem Abstand direkt darueber
+  // (horizontales Segment) bzw. daneben (vertikales Segment) setzen, statt es
+  // auf die Linie zu legen - das wirkte zuvor wie "irgendwo in der Naehe".
+  const GAP = 11;
+  let best=null, bestLen=-1;
+  for(let i=0;i<points.length-1;i++){
+    const [x1,y1]=points[i], [x2,y2]=points[i+1];
+    const len = Math.hypot(x2-x1,y2-y1);
+    if(len>bestLen){ bestLen=len; best=[x1,y1,x2,y2]; }
+  }
+  const [x1,y1,x2,y2]=best;
+  const midx=(x1+x2)/2, midy=(y1+y2)/2;
+  if(Math.abs(y1-y2)<0.01) return [midx, midy-GAP];
+  return [midx+GAP, midy];
 }
 
 /* ====================== SVG-Rendering ====================== */
@@ -593,10 +640,11 @@ function renderLayout(L, animate){
     const sOff = fanOffset(outMap[e.from].indexOf(e), outMap[e.from].length);
     const eOff = fanOffset(inMap[e.to].indexOf(e), inMap[e.to].length);
     const a=anchors(s,t,sOff,eOff);
+    const pts=routeEdge(s,t,a,L);
     const g=el('g',{class:'gconn'});
-    g.appendChild(el('path',{d:connectorPath(a),fill:'none',stroke:'#5a5a5a','stroke-width':1.5,'marker-end':'url(#arr)'}));
+    g.appendChild(el('path',{d:polylinePath(pts),fill:'none',stroke:'#5a5a5a','stroke-width':1.5,'marker-end':'url(#arr)'}));
     if(e.label){
-      const [lx,ly]=connectorLabelPos(a);
+      const [lx,ly]=connectorLabelPos(pts);
       const lbl=el('g',{class:'glabel'});
       const padw = e.label.length*6.4 + 12;
       lbl.appendChild(el('rect',{x:lx-padw/2,y:ly-9,width:padw,height:16,rx:3,fill:'#ffffff',stroke:'#e0e0e0','stroke-width':1,opacity:.96}));
@@ -801,10 +849,16 @@ function buildVsdx(model, L){
     const [f,s]=hexFor(n.type);
     shapesXml.push(rectShape(id++, n.x, n.y, n.w, n.h, f, s, n.label, false, n.type==='decision'));
   });
-  // Verbinder als Linien
+  // Verbinder als Linien - gleiche Auffaecherung + Hindernis-Umgehung wie in der Vorschau
+  const outMap = {}, inMap = {};
+  L.edges.forEach(e=>{ (outMap[e.from]=outMap[e.from]||[]).push(e); (inMap[e.to]=inMap[e.to]||[]).push(e); });
   L.edges.forEach(e=>{
-    const a=anchors(L.byId[e.from], L.byId[e.to]);
-    shapesXml.push(lineShape(id++, a.start[0],a.start[1], a.end[0],a.end[1], e.label||''));
+    const s=L.byId[e.from], t=L.byId[e.to];
+    const sOff = fanOffset(outMap[e.from].indexOf(e), outMap[e.from].length);
+    const eOff = fanOffset(inMap[e.to].indexOf(e), inMap[e.to].length);
+    const a=anchors(s,t,sOff,eOff);
+    const pts=routeEdge(s,t,a,L);
+    shapesXml.push(lineShape(id++, pts, e.label||''));
   });
 
   function rectShape(sid, cx, cy, w, h, fill, line, text, isLane, isDiamond){
@@ -831,29 +885,33 @@ function buildVsdx(model, L){
       `</Section>`+
       `<Text>${xmlEsc(text)}</Text></Shape>`;
   }
-  function lineShape(sid, x1,y1,x2,y2,text){
+  function lineShape(sid, points, text){
     // Ein 1-D-Shape leitet PinX/PinY/Width/Height/Angle in echten Visio-Dateien per
     // GUARD()-Formel von seiner Verbinder-Master-Vorlage aus Begin/End ab. Unsere
-    // Shapes haben keinen Master, also fehlen diese Formeln - ohne sie bleiben
-    // Width/Height/PinX/PinY auf 0 und die Linie kollabiert unsichtbar auf einen
-    // Punkt. Wir berechnen den Transform deshalb selbst, genau wie es die
-    // Standard-Formel tun wuerde, und liefern damit literale Werte statt Formeln.
-    const X1=x1/PX, Y1=(L.pageH-y1)/PX, X2=x2/PX, Y2=(L.pageH-y2)/PX;
-    const dx=X2-X1, dy=Y2-Y1;
-    const width=Math.max(Math.hypot(dx,dy), 0.001);
-    const angle=Math.atan2(dy,dx);
-    const pinX=(X1+X2)/2, pinY=(Y1+Y2)/2;
+    // Shapes haben keinen Master, also fehlen diese Formeln. Da Verbinder jetzt
+    // mehrsegmentige Ausweich-Pfade sein koennen (nicht nur eine gerade Linie),
+    // spannen wir stattdessen ein achsparalleles Bounding-Box-Koordinatensystem
+    // auf (Angle=0) und platzieren jeden Punkt als Bruchteil von Width/Height -
+    // das reduziert sich fuer eine einfache 2-Punkt-Linie exakt auf deren Verlauf.
+    const pts = points.map(([px,py])=>[px/PX, (L.pageH-py)/PX]);
+    const xs=pts.map(p=>p[0]), ys=pts.map(p=>p[1]);
+    const minX=Math.min(...xs), maxX=Math.max(...xs), minY=Math.min(...ys), maxY=Math.max(...ys);
+    const spanX=maxX-minX, spanY=maxY-minY;
+    const width=Math.max(spanX,0.001), height=Math.max(spanY,0.001);
+    const fx = x => (spanX>0.0001 ? (x-minX)/spanX : 0).toFixed(4);
+    const fy = y => (spanY>0.0001 ? (y-minY)/spanY : 0).toFixed(4);
+    const pinX=(minX+maxX)/2, pinY=(minY+maxY)/2;
+    const rows = pts.map((p,i)=> `<Row T="${i===0?'RelMoveTo':'RelLineTo'}" IX="${i+1}"><Cell N="X" V="${fx(p[0])}"/><Cell N="Y" V="${fy(p[1])}"/></Row>`).join('');
     return `<Shape ID="${sid}" Type="Shape" LineStyle="0" FillStyle="0" TextStyle="0">`+
       `<Cell N="PinX" V="${pinX.toFixed(4)}"/><Cell N="PinY" V="${pinY.toFixed(4)}"/>`+
-      `<Cell N="Width" V="${width.toFixed(4)}"/><Cell N="Height" V="0"/>`+
-      `<Cell N="LocPinX" V="${(width/2).toFixed(4)}"/><Cell N="LocPinY" V="0"/>`+
-      `<Cell N="Angle" V="${angle.toFixed(6)}"/>`+
-      `<Cell N="BeginX" V="${X1.toFixed(4)}"/><Cell N="BeginY" V="${Y1.toFixed(4)}"/>`+
-      `<Cell N="EndX" V="${X2.toFixed(4)}"/><Cell N="EndY" V="${Y2.toFixed(4)}"/>`+
+      `<Cell N="Width" V="${width.toFixed(4)}"/><Cell N="Height" V="${height.toFixed(4)}"/>`+
+      `<Cell N="LocPinX" V="${(width/2).toFixed(4)}"/><Cell N="LocPinY" V="${(height/2).toFixed(4)}"/>`+
+      `<Cell N="Angle" V="0"/>`+
+      `<Cell N="BeginX" V="${pts[0][0].toFixed(4)}"/><Cell N="BeginY" V="${pts[0][1].toFixed(4)}"/>`+
+      `<Cell N="EndX" V="${pts[pts.length-1][0].toFixed(4)}"/><Cell N="EndY" V="${pts[pts.length-1][1].toFixed(4)}"/>`+
       `<Cell N="LineColor" V="#5A5A5A"/><Cell N="LineWeight" V="0.01041666666666667"/><Cell N="EndArrow" V="5"/><Cell N="EndArrowSize" V="1"/>`+
       `<Section N="Geometry" IX="0"><Cell N="NoFill" V="1"/><Cell N="NoLine" V="0"/>`+
-        `<Row T="RelMoveTo" IX="1"><Cell N="X" V="0"/><Cell N="Y" V="0"/></Row>`+
-        `<Row T="RelLineTo" IX="2"><Cell N="X" V="1"/><Cell N="Y" V="0"/></Row>`+
+        rows+
       `</Section>`+ (text?`<Text>${xmlEsc(text)}</Text>`:``) +`</Shape>`;
   }
 
