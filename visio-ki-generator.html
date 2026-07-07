@@ -498,24 +498,32 @@ function basicPoints(a){
   const my=(sy+ey)/2; return [[sx,sy],[sx,my],[ex,my],[ex,ey]];
 }
 // Liefert die Verbinder-Route als Punktliste. Kreuzt der direkte (max. 1 Knick)
-// Pfad eine andere Box, wird stattdessen durch den freien Rand der Lane (oben/
-// unten) bzw. durch die Spalte links neben den Lane-Koepfen ausgewichen, statt
-// einfach durch die Box hindurchzuzeichnen.
+// Pfad eine andere Box, wird eine Reihe von Ausweich-Kandidaten durchprobiert
+// (Lane-Raender aller beteiligten und dazwischenliegenden Lanes, Kopf-Spalte,
+// Seitenraender) und der erste kollisionsfreie genommen - statt nur 1-2 feste
+// Kandidaten zu pruefen und sonst stillschweigend durch die Box zu zeichnen.
 function routeEdge(s, t, a, L){
   const basic = basicPoints(a);
   const obstacles = L.nodes.filter(n=> n.id!==s.id && n.id!==t.id);
   if(!pathBlocked(basic, obstacles)) return basic;
   const [sx,sy]=a.start, [ex,ey]=a.end;
-  if(a.horiz){
-    const li = s.li;
-    const candidates = [ L.laneTop[li]+16, L.laneTop[li]+L.laneHeight[li]-16 ];
-    for(const midY of candidates){
-      const detour=[[sx,sy],[sx,midY],[ex,midY],[ex,ey]];
-      if(!pathBlocked(detour, obstacles)) return detour;
-    }
-  }else{
-    const detour=[[sx,sy],[G.HEADER_W+10,sy],[G.HEADER_W+10,ey],[ex,ey]];
-    if(!pathBlocked(detour, obstacles)) return detour;
+
+  const tryY = midY=>{ const p=[[sx,sy],[sx,midY],[ex,midY],[ex,ey]]; return pathBlocked(p,obstacles)?null:p; };
+  const tryX = midX=>{ const p=[[sx,sy],[midX,sy],[midX,ey],[ex,ey]]; return pathBlocked(p,obstacles)?null:p; };
+
+  const loFrom=Math.min(s.li,t.li), hiTo=Math.max(s.li,t.li);
+  const yCandidates=[sy, ey];
+  for(let li=Math.max(0,loFrom-1); li<=Math.min(L.lanes.length-1,hiTo+1); li++){
+    yCandidates.push(L.laneTop[li]+16, L.laneTop[li]+L.laneHeight[li]-16);
+  }
+  yCandidates.push(G.RULER+10, L.pageH-10);
+  const xCandidates=[sx, ex, G.HEADER_W+10, L.pageW-10];
+
+  // Zuerst in Richtung der dominanten Achse ausweichen (natuerlicher Ausweich-
+  // Kanal fuer diese Kantenrichtung), danach die andere Achse als Rueckfall.
+  const order = a.horiz ? [ [yCandidates,tryY], [xCandidates,tryX] ] : [ [xCandidates,tryX], [yCandidates,tryY] ];
+  for(const [cands,fn] of order){
+    for(const c of cands){ const r=fn(c); if(r) return r; }
   }
   return basic; // kein freier Ausweg gefunden - Original beibehalten
 }
