@@ -122,6 +122,12 @@
   </div>
 
   <div class="toolbar">
+    <label for="modeSel" style="font-size:12px;color:var(--text-soft)">Typ</label>
+    <select id="modeSel" title="Diagrammtyp wählen" style="height:28px;border:1px solid var(--line);background:#fff;border-radius:4px;font:inherit;font-size:12.5px;padding:0 6px;cursor:pointer;color:var(--text)">
+      <option value="swimlane">Swimlane / BPMN</option>
+      <option value="flow">Flussdiagramm</option>
+    </select>
+    <div class="sep"></div>
     <button id="btnExample">＋ Beispiel</button>
     <button id="btnClear">🗑 Leeren</button>
     <div class="sep"></div>
@@ -170,7 +176,7 @@
 <script>
 "use strict";
 /* ====================== Konfiguration & State ====================== */
-const LS = { key:'vkg_apikey', model:'vkg_model', ep:'vkg_endpoint' };
+const LS = { key:'vkg_apikey', model:'vkg_model', ep:'vkg_endpoint', diag:'vkg_diagramtype' };
 const P  = { chat:'vkg_chat', api:'vkg_apimsgs', model:'vkg_model_json' };
 const GREETING = 'Hallo! Beschreibe mir einen Geschäftsprozess, und ich baue daraus ein Visio-Flussdiagramm mit Swimlanes. Folgeanweisungen bauen auf dem bestehenden Diagramm auf – es wird nichts verworfen.';
 function defaultEndpoint(){
@@ -182,7 +188,9 @@ function defaultEndpoint(){
 const settings = {
   apiKey: localStorage.getItem(LS.key) || '',
   model: localStorage.getItem(LS.model) || 'mistral-large-latest',
-  endpoint: localStorage.getItem(LS.ep) || defaultEndpoint()
+  endpoint: localStorage.getItem(LS.ep) || defaultEndpoint(),
+  // Diagrammtyp: 'swimlane' (BPMN-nah, Rollen als Bänder) oder 'flow' (klassisches Flussdiagramm nach ISO 5807/DIN 66001)
+  diagramType: localStorage.getItem(LS.diag) || 'swimlane'
 };
 let currentModel = null;        // aktuelles Prozessmodell (JSON)
 let currentLayout = null;       // berechnetes Layout
@@ -212,7 +220,9 @@ function restoreState(){
   if(md && md.nodes){
     try{
       currentModel = md;
-      currentLayout = computeLayout(md);
+      // Modus aus dem gespeicherten Modell übernehmen (fehlt das Feld: swimlane).
+      settings.diagramType = md.diagramType || 'swimlane';
+      currentLayout = layout(md);
       renderLayout(currentLayout, false);
       $('btnSvg').disabled = $('btnVsdx').disabled = $('btnJson').disabled = false;
     }catch(e){ currentModel = null; currentLayout = null; }
@@ -239,6 +249,22 @@ Regeln:
 - Schreibe labels und title auf Deutsch, außer der Nutzer wünscht etwas anderes.
 - Wenn ein bestehendes Modell geändert werden soll, gib stets das VOLLSTÄNDIGE aktualisierte Modell zurück. Übernimm dabei JEDEN unveränderten Knoten und JEDE unveränderte Kante exakt mit der bisherigen id/den bisherigen Feldern - kopiere sie unverändert aus dem bestehenden Modell, statt sie neu zu formulieren.
 - Erzeuge NUR dann einen neuen Knoten, wenn die Anweisung ausdrücklich einen neuen Schritt/eine neue Rolle beschreibt. Soll lediglich eine Kante zwischen bereits vorhandenen Knoten ergänzt werden, füge NUR ein neues Element in "edges" hinzu (mit den bestehenden ids) und lasse "nodes" unverändert. Erzeuge insbesondere niemals einen zweiten "start"- oder zusätzlichen "end"-Knoten, wenn schon einer mit vergleichbarer Bedeutung existiert.`;
+
+// Zweiter Modus: klassisches Flussdiagramm (Ablaufdiagramm) nach ISO 5807 / DIN 66001 – OHNE Swimlanes,
+// rein zeitlich-logischer Ablauf von oben nach unten. Eigene Regeln + eigenes Schema (kein "lanes"/"lane").
+const SYSTEM_PROMPT_FLOW =
+`Du erzeugst aus einer Prozessbeschreibung ein klassisches Flussdiagramm (Ablaufdiagramm) nach ISO 5807 / DIN 66001.
+Antworte AUSSCHLIESSLICH mit einem gültigen JSON-Objekt nach diesem Schema – kein Markdown, kein Fließtext:
+{"title":string,"diagramType":"flow","nodes":[{"id":string,"label":string,"type":"start"|"end"|"process"|"decision"|"io"|"subprocess"|"document"|"connector"}],"edges":[{"from":string,"to":string,"label":string}]}
+Regeln (State of the Art):
+- KEINE Swimlanes und KEINE Rollen/Abteilungen. Der Ablauf ist rein zeitlich-logisch und läuft von oben nach unten.
+- Genau EIN Knoten mit type "start"; mindestens EIN klar benanntes "end".
+- Jeder Schritt ist genau eine Handlung: "process"-Labels beginnen mit einem Verb (z. B. "Rechnung prüfen"), kurz und aktiv.
+- "decision" ist als Ja/Nein- bzw. Fall-Frage formuliert (z. B. "Betrag korrekt?") und hat mindestens ZWEI ausgehende edges mit eindeutigen labels (z. B. "Ja"/"Nein"). Jeder Zweig wird später wieder zusammengeführt oder endet an einem "end".
+- Kein Knoten außer "end" ohne ausgehende Kante; jeder Knoten außer "start" muss erreichbar sein (keine losen Enden).
+- Symbolwahl: "io" (Parallelogramm) für Ein-/Ausgaben, "document" für erzeugte Dokumente/Belege, "subprocess" für ausgelagerte Teilabläufe. Für Rücksprünge/Schleifen darf ein "connector" (Verbindungskreis) statt einer sehr langen Rückkante gesetzt werden.
+- ids fortlaufend als n1, n2, n3 … . Schreibe labels und title auf Deutsch, außer der Nutzer wünscht etwas anderes.
+- Wenn ein bestehendes Modell geändert werden soll, gib stets das VOLLSTÄNDIGE aktualisierte Modell zurück und übernimm jeden unveränderten Knoten und jede unveränderte Kante exakt mit der bisherigen id/den bisherigen Feldern.`;
 
 /* ====================== DOM ====================== */
 const $ = id => document.getElementById(id);
@@ -268,10 +294,15 @@ function isProxy(){ return /\/proxy\/?$/.test(settings.endpoint); }
 async function callMistral(userText){
   if(!settings.apiKey && !isProxy()){ throw new Error('Backend nicht erreichbar. Bitte die App über "python start.py" starten — der API-Key liegt im Backend.'); }
   apiMessages.push({ role:'user', content:userText });
-  const msgs = [{ role:'system', content:SYSTEM_PROMPT }];
-  if(currentModel){
+  // System-Prompt nach aktivem Diagrammtyp wählen.
+  const sysPrompt = settings.diagramType==='flow' ? SYSTEM_PROMPT_FLOW : SYSTEM_PROMPT;
+  const msgs = [{ role:'system', content:sysPrompt }];
+  // Bestehendes Modell nur dann als Kontext anhängen, wenn es zum aktuellen Modus passt –
+  // sonst würde ein Swimlane-Modell die Flussdiagramm-Erzeugung (oder umgekehrt) verfälschen.
+  const prevMode = (currentModel && currentModel.diagramType) || 'swimlane';
+  if(currentModel && prevMode === settings.diagramType){
     msgs.push({ role:'system', content:
-      'BESTEHENDES MODELL — baue darauf auf, behalte vorhandene Knoten/Kanten/Lanes bei und ändere nur, was die neue Anweisung verlangt. Verwirf nichts ohne ausdrücklichen Auftrag. Gib danach das VOLLSTÄNDIGE aktualisierte Modell zurück:\n' + JSON.stringify(currentModel) });
+      'BESTEHENDES MODELL — baue darauf auf, behalte vorhandene Knoten/Kanten (und ggf. Lanes) bei und ändere nur, was die neue Anweisung verlangt. Verwirf nichts ohne ausdrücklichen Auftrag. Gib danach das VOLLSTÄNDIGE aktualisierte Modell zurück:\n' + JSON.stringify(currentModel) });
   }
   msgs.push(...apiMessages);
   const body = {
@@ -345,6 +376,40 @@ function validateModel(m){
   return errs;
 }
 
+// Validierung für den Flussdiagramm-Modus: keine Lane-Pflicht, dafür strengere Ablauf-Regeln.
+function validateFlow(m){
+  const errs = [];
+  if(!m || typeof m!=='object') return ['Kein Objekt.'];
+  if(!Array.isArray(m.nodes) || !m.nodes.length) errs.push('nodes fehlen.');
+  if(!Array.isArray(m.edges)) m.edges = [];
+  if(errs.length) return errs;
+  const ids = new Set();
+  let starts = 0, ends = 0;
+  m.nodes.forEach(n=>{
+    if(!n.id) errs.push('Knoten ohne id.');
+    ids.add(n.id);
+    if(!n.label || !String(n.label).trim()) errs.push('Knoten "'+(n.id||'?')+'" hat kein Label.');
+    if(n.type==='start') starts++;
+    if(n.type==='end') ends++;
+  });
+  const outc = {}; m.nodes.forEach(n=>outc[n.id]=0);
+  m.edges.forEach(e=>{
+    if(!ids.has(e.from) || !ids.has(e.to)){ errs.push('Kante verweist auf unbekannten Knoten.'); return; }
+    outc[e.from]++;
+  });
+  if(starts!==1) errs.push('Es muss genau einen Start-Knoten geben.');
+  if(ends===0) errs.push('Kein End-Knoten.');
+  // Jede Entscheidung braucht mindestens zwei ausgehende Kanten (Verzweigung).
+  m.nodes.forEach(n=>{ if(n.type==='decision' && outc[n.id] < 2) errs.push('Entscheidung "'+(n.label||n.id)+'" braucht mindestens zwei ausgehende Zweige.'); });
+  // Keine losen Enden: jeder Knoten außer end/connector muss weiterführen.
+  m.nodes.forEach(n=>{ if(n.type!=='end' && n.type!=='connector' && outc[n.id]===0) errs.push('Knoten "'+(n.label||n.id)+'" hat keine ausgehende Kante.'); });
+  return errs;
+}
+
+// Dispatcher: wählt Validierung und Layout passend zum Diagrammtyp des Modells.
+function validate(model){ return (model && model.diagramType==='flow') ? validateFlow(model) : validateModel(model); }
+function layout(model){ return (model && model.diagramType==='flow') ? computeLayoutFlow(model) : computeLayout(model); }
+
 /* ====================== Geometrie-Konstanten ====================== */
 const G = {
   RULER:22, HEADER_W:128, PAD:34,
@@ -354,6 +419,8 @@ const G = {
 function shapeSize(type){
   if(type==='decision') return {w:132, h:86};
   if(type==='start'||type==='end') return {w:150, h:50};
+  if(type==='connector') return {w:46, h:46};
+  if(type==='document') return {w:166, h:72};
   return {w:166, h:64};
 }
 
@@ -440,7 +507,55 @@ function computeLayout(m){
   });
 
   return {
-    lanes, laneIndex, laneTop, laneHeight, pageW, pageH,
+    lanes, laneIndex, laneTop, laneHeight, pageW, pageH, headerW:G.HEADER_W, flow:false,
+    nodes, byId:placed, edges:m.edges.filter(e=>placed[e.from] && placed[e.to]), title:m.title||'Prozess'
+  };
+}
+
+/* ====================== Auto-Layout: Flussdiagramm (vertikal, ohne Lanes) ====================== */
+// Nutzt denselben zyklensicheren Längster-Pfad-Rang wie computeColumns, bildet ihn aber auf
+// ZEILEN (oben→unten) statt Spalten ab. Innerhalb eines Rangs werden mehrere Knoten (z. B. die
+// Ja/Nein-Ziele einer Entscheidung) nebeneinander gesetzt; die Reihenfolge folgt der mittleren
+// X-Position der bereits platzierten Vorgänger (Baryzentrum), das reduziert Kreuzungen.
+function computeLayoutFlow(m){
+  const byId = {}; m.nodes.forEach(n=>byId[n.id]=n);
+  const rank = computeColumns(m, byId);
+  const maxRank = Math.max(0, ...m.nodes.map(n=>rank[n.id]||0));
+  const ranks = []; for(let r=0;r<=maxRank;r++) ranks.push([]);
+  m.nodes.forEach(n=> ranks[rank[n.id]||0].push(n.id));
+
+  const preds = {}; m.nodes.forEach(n=>preds[n.id]=[]);
+  m.edges.forEach(e=>{ if(byId[e.from] && byId[e.to]) preds[e.to].push(e.from); });
+
+  const COLW = 210, ROWH = 138;
+  const marginX = 56, marginTop = G.RULER + 34;
+  const maxInRank = Math.max(1, ...ranks.map(a=>a.length));
+  const pageW = marginX*2 + maxInRank*COLW;
+  const centerX = pageW/2;
+
+  const placed = {}; const nodes = [];
+  ranks.forEach((ids,r)=>{
+    const bary = id=>{
+      const ps = preds[id].filter(p=>placed[p]);
+      if(!ps.length) return centerX;
+      return ps.reduce((s,p)=>s+placed[p].x,0)/ps.length;
+    };
+    ids.sort((a,b)=> bary(a)-bary(b));
+    const count = ids.length;
+    ids.forEach((id,k)=>{
+      const n = byId[id];
+      const sz = shapeSize(n.type);
+      const x = centerX + (k-(count-1)/2)*COLW;
+      const y = marginTop + r*ROWH + ROWH/2;
+      const label = (n.label && String(n.label).trim()) ? n.label : n.id;
+      const node = { id, label, type:n.type, lane:null, x, y, w:sz.w, h:sz.h, col:r, li:0 };
+      placed[id] = node; nodes.push(node);
+    });
+  });
+  const pageH = marginTop + (maxRank+1)*ROWH + 24;
+
+  return {
+    lanes:[], laneIndex:{}, laneTop:[], laneHeight:[], pageW, pageH, headerW:marginX, flow:true,
     nodes, byId:placed, edges:m.edges.filter(e=>placed[e.from] && placed[e.to]), title:m.title||'Prozess'
   };
 }
@@ -566,6 +681,8 @@ function shapeColors(type){
   if(type==='decision') return ['var(--dec-f)','var(--dec-s)'];
   if(type==='start'||type==='end') return ['var(--term-f)','var(--term-s)'];
   if(type==='io') return ['var(--io-f)','var(--io-s)'];
+  if(type==='connector') return ['#ededed','#8c8c8c'];
+  if(type==='document') return ['var(--proc-f)','var(--proc-s)'];
   return ['var(--proc-f)','var(--proc-s)'];
 }
 function shapeNode(g, n){
@@ -579,6 +696,14 @@ function shapeNode(g, n){
   }else if(n.type==='io'){
     const sk=14;
     shape = el('polygon',{points:`${x+sk},${y} ${x+n.w},${y} ${x+n.w-sk},${y+n.h} ${x},${y+n.h}`, fill, stroke, 'stroke-width':1.4, filter:'url(#sh)'});
+  }else if(n.type==='connector'){
+    shape = el('circle',{cx:n.x, cy:n.y, r:Math.min(n.w,n.h)/2, fill, stroke, 'stroke-width':1.4, filter:'url(#sh)'});
+  }else if(n.type==='document'){
+    // Rechteck mit gewellter Unterkante (Dokument-Symbol nach ISO 5807).
+    const amp=7, yb=y+n.h;
+    const d=`M ${x} ${y} L ${x+n.w} ${y} L ${x+n.w} ${yb-amp} `+
+            `Q ${x+n.w*0.75} ${yb-amp*2.4} ${x+n.w*0.5} ${yb-amp} T ${x} ${yb-amp} Z`;
+    shape = el('path',{d, fill, stroke, 'stroke-width':1.4, filter:'url(#sh)'});
   }else{
     shape = el('rect',{x, y, width:n.w, height:n.h, rx:3, ry:3, fill, stroke, 'stroke-width':1.4, filter:'url(#sh)'});
   }
@@ -613,8 +738,8 @@ function renderLayout(L, animate){
   svg.appendChild(el('rect',{x:0,y:0,width:L.pageW,height:L.pageH,fill:'var(--page)'}));
   const gridStep=24;
   const grid=el('g',{});
-  for(let gx=G.HEADER_W; gx<=L.pageW; gx+=gridStep) grid.appendChild(el('line',{x1:gx,y1:G.RULER,x2:gx,y2:L.pageH,stroke:'var(--grid)','stroke-width':1}));
-  for(let gy=G.RULER; gy<=L.pageH; gy+=gridStep) grid.appendChild(el('line',{x1:G.HEADER_W,y1:gy,x2:L.pageW,y2:gy,stroke:'var(--grid)','stroke-width':1}));
+  for(let gx=L.headerW; gx<=L.pageW; gx+=gridStep) grid.appendChild(el('line',{x1:gx,y1:G.RULER,x2:gx,y2:L.pageH,stroke:'var(--grid)','stroke-width':1}));
+  for(let gy=G.RULER; gy<=L.pageH; gy+=gridStep) grid.appendChild(el('line',{x1:L.headerW,y1:gy,x2:L.pageW,y2:gy,stroke:'var(--grid)','stroke-width':1}));
   svg.appendChild(grid);
 
   // Swimlane-Bänder + Header
@@ -628,8 +753,8 @@ function renderLayout(L, animate){
 
   // Ruler-Streifen (nur Optik)
   svg.appendChild(el('rect',{x:0,y:0,width:L.pageW,height:G.RULER,fill:'#f0f0f0',stroke:'#d8d8d8','stroke-width':1}));
-  svg.appendChild(el('rect',{x:0,y:0,width:G.HEADER_W,height:G.RULER,fill:'#e8e8e8',stroke:'#d8d8d8','stroke-width':1}));
-  for(let rx=G.HEADER_W; rx<L.pageW; rx+=24) svg.appendChild(el('line',{x1:rx,y1:G.RULER-6,x2:rx,y2:G.RULER,stroke:'#bdbdbd','stroke-width':1}));
+  svg.appendChild(el('rect',{x:0,y:0,width:L.headerW,height:G.RULER,fill:'#e8e8e8',stroke:'#d8d8d8','stroke-width':1}));
+  for(let rx=L.headerW; rx<L.pageW; rx+=24) svg.appendChild(el('line',{x1:rx,y1:G.RULER-6,x2:rx,y2:G.RULER,stroke:'#bdbdbd','stroke-width':1}));
 
   // Connector-Gruppe (zuerst, damit hinter Shapes)
   const connG = el('g',{}); svg.appendChild(connG);
@@ -717,22 +842,28 @@ async function handleSend(){
   try{
     const content = await callMistral(text);
     let model = parseModel(content);
-    let errs = validateModel(model);
+    // Diagrammtyp deterministisch aus der Nutzerauswahl setzen (nicht vom LLM abhängig machen).
+    model.diagramType = settings.diagramType;
+    let errs = validate(model);
     if(errs.length){
       // einmalige Korrekturschleife
       setStatus('Korrigiere Modell…');
       const fix = await callMistral('Das Modell war fehlerhaft ('+errs.join(' ')+'). Gib das vollständige, korrigierte JSON-Modell zurück.');
-      model = parseModel(fix); errs = validateModel(model);
+      model = parseModel(fix); model.diagramType = settings.diagramType; errs = validate(model);
     }
     typing.remove();
     if(errs.length){ addMsg('Konnte kein gültiges Diagramm erzeugen: '+errs.join(' '),'err'); setStatus('Fehler'); setBusy(false); return; }
     currentModel = model;
-    currentLayout = computeLayout(model);
+    currentLayout = layout(model);
     renderLayout(currentLayout, true);
     persist();
     $('btnSvg').disabled=$('btnVsdx').disabled=$('btnJson').disabled=false;
-    const laneTxt = model.lanes.join(', ');
-    addMsg(`„${model.title}" erstellt: ${model.nodes.length} Schritte in ${model.lanes.length} Swimlanes (${laneTxt}). Du kannst Änderungen anweisen, z. B. „Füge eine Genehmigung hinzu".`,'bot');
+    if(model.diagramType==='flow'){
+      addMsg(`„${model.title}" als Flussdiagramm erstellt: ${model.nodes.length} Schritte (ISO 5807 / DIN 66001, ohne Swimlanes). Du kannst Änderungen anweisen, z. B. „Füge nach der Prüfung einen Genehmigungsschritt hinzu".`,'bot');
+    }else{
+      const laneTxt = (model.lanes||[]).join(', ');
+      addMsg(`„${model.title}" erstellt: ${model.nodes.length} Schritte in ${(model.lanes||[]).length} Swimlanes (${laneTxt}). Du kannst Änderungen anweisen, z. B. „Füge eine Genehmigung hinzu".`,'bot');
+    }
   }catch(err){
     typing.remove();
     addMsg(err.message || String(err),'err');
@@ -799,6 +930,8 @@ function hexFor(type){
   if(type==='decision') return ['#FFF2CC','#D6B656'];
   if(type==='start'||type==='end') return ['#D5E8D4','#82B366'];
   if(type==='io') return ['#E1D5E7','#9673A6'];
+  if(type==='connector') return ['#EDEDED','#8C8C8C'];
+  if(type==='document') return ['#DAE8FC','#6C8EBF'];
   return ['#DAE8FC','#6C8EBF'];
 }
 
@@ -853,10 +986,9 @@ function buildVsdx(model, L){
     const w=(L.pageW-G.HEADER_W), hh=h;
     shapesXml.push(rectShape(id++, cx, cy, w, hh, '#F5F8FD', '#C9D3E2', lane, true));
   });
-  // Knoten: Entscheidungen als Raute, alles andere als Rechteck
+  // Knoten: je Typ die passende, in Visio bearbeitbare Geometrie.
   L.nodes.forEach(n=>{
-    const [f,s]=hexFor(n.type);
-    shapesXml.push(rectShape(id++, n.x, n.y, n.w, n.h, f, s, n.label, false, n.type==='decision'));
+    shapesXml.push(nodeShapeVsdx(id++, n));
   });
   // Verbinder als Linien - gleiche Auffaecherung + Hindernis-Umgehung wie in der Vorschau
   const outMap = {}, inMap = {};
@@ -893,6 +1025,46 @@ function buildVsdx(model, L){
         geomRows+
       `</Section>`+
       `<Text>${xmlEsc(text)}</Text></Shape>`;
+  }
+  // Geometrie als Polygon aus Bruchteil-Koordinaten (0..1, Ursprung unten links, Y nach oben).
+  function poly(points){
+    return points.map((p,i)=>`<Row T="${i===0?'RelMoveTo':'RelLineTo'}" IX="${i+1}"><Cell N="X" V="${p[0].toFixed(4)}"/><Cell N="Y" V="${p[1].toFixed(4)}"/></Row>`).join('');
+  }
+  // Symboltreue, in Visio direkt editierbare Formen je Knotentyp.
+  function nodeShapeVsdx(sid, n){
+    const [fill,line]=hexFor(n.type);
+    const w=n.w, h=n.h;
+    const Win2=(w/PX).toFixed(4), Hin2=(h/PX).toFixed(4);
+    let geom, rounding=0;
+    if(n.type==='decision'){
+      geom = poly([[0.5,0],[1,0.5],[0.5,1],[0,0.5],[0.5,0]]);              // Raute
+    }else if(n.type==='start'||n.type==='end'){
+      geom = poly([[0,0],[1,0],[1,1],[0,1],[0,0]]); rounding = (h/PX/2);    // Terminator (Stadion via Rounding)
+    }else if(n.type==='io'){
+      const s=0.18; geom = poly([[s,1],[1,1],[1-s,0],[0,0],[s,1]]);        // Parallelogramm (Daten)
+    }else if(n.type==='connector'){
+      geom = `<Row T="Ellipse" IX="1"><Cell N="X" V="0.5"/><Cell N="Y" V="0.5"/><Cell N="A" V="1"/><Cell N="B" V="0.5"/><Cell N="C" V="0.5"/><Cell N="D" V="0"/></Row>`; // Kreis
+    }else if(n.type==='document'){
+      const N=8, base=0.14, amp=0.11; const pts=[[0,1],[1,1]];             // Dokument (gewellte Unterkante)
+      for(let i=0;i<=N;i++){ const x=1-i/N, y=base+amp*Math.sin(i/N*Math.PI*2); pts.push([x,y]); }
+      pts.push([0,1]); geom = poly(pts);
+    }else{
+      geom = poly([[0,0],[1,0],[1,1],[0,1],[0,0]]);                        // Prozess / Teilprozess / Fallback: Rechteck
+    }
+    let sections = `<Section N="Geometry" IX="0"><Cell N="NoFill" V="0"/><Cell N="NoLine" V="0"/>${geom}</Section>`;
+    if(n.type==='subprocess'){
+      // Zwei senkrechte Seitenbalken als eigene Linien-Geometrien (Teilprozess-Symbol).
+      sections += `<Section N="Geometry" IX="1"><Cell N="NoFill" V="1"/><Cell N="NoLine" V="0"/><Row T="RelMoveTo" IX="1"><Cell N="X" V="0.08"/><Cell N="Y" V="0"/></Row><Row T="RelLineTo" IX="2"><Cell N="X" V="0.08"/><Cell N="Y" V="1"/></Row></Section>`;
+      sections += `<Section N="Geometry" IX="2"><Cell N="NoFill" V="1"/><Cell N="NoLine" V="0"/><Row T="RelMoveTo" IX="1"><Cell N="X" V="0.92"/><Cell N="Y" V="0"/></Row><Row T="RelLineTo" IX="2"><Cell N="X" V="0.92"/><Cell N="Y" V="1"/></Row></Section>`;
+    }
+    return `<Shape ID="${sid}" Type="Shape" LineStyle="0" FillStyle="0" TextStyle="0">`+
+      `<Cell N="PinX" V="${toX(n.x)}"/><Cell N="PinY" V="${toY(n.y)}"/>`+
+      `<Cell N="Width" V="${Win2}"/><Cell N="Height" V="${Hin2}"/>`+
+      `<Cell N="LocPinX" V="${(w/PX/2).toFixed(4)}"/><Cell N="LocPinY" V="${(h/PX/2).toFixed(4)}"/>`+
+      `<Cell N="FillForegnd" V="${fill}"/><Cell N="LineColor" V="${line}"/><Cell N="FillPattern" V="1"/>`+
+      (rounding?`<Cell N="Rounding" V="${rounding.toFixed(4)}"/>`:``)+
+      sections+
+      `<Text>${xmlEsc(n.label)}</Text></Shape>`;
   }
   function lineShape(sid, points, text){
     // Ein 1-D-Shape leitet PinX/PinY/Width/Height/Angle in echten Visio-Dateien per
@@ -1005,7 +1177,9 @@ function updateKeyHint(){
 
 /* ====================== Beispiel & Leeren ====================== */
 function insertExample(){
-  input.value = 'Bestellprozess: Der Kunde gibt eine Bestellung auf. Das Lager prüft die Verfügbarkeit. Ist die Ware verfügbar, kommissioniert das Lager und der Versand verschickt das Paket; andernfalls löst der Einkauf eine Nachbestellung aus und informiert den Kunden. Nach dem Versand wird der Vorgang abgeschlossen.';
+  input.value = settings.diagramType==='flow'
+    ? 'Rechnungsprüfung: Eine Rechnung geht ein. Der Sachbearbeiter prüft, ob der Betrag mit der Bestellung übereinstimmt. Falls ja, wird die Rechnung freigegeben und zur Zahlung weitergeleitet; falls nein, wird eine Rückfrage an den Lieferanten gestellt und nach der Korrektur erneut geprüft. Nach der Zahlung wird der Vorgang archiviert.'
+    : 'Bestellprozess: Der Kunde gibt eine Bestellung auf. Das Lager prüft die Verfügbarkeit. Ist die Ware verfügbar, kommissioniert das Lager und der Versand verschickt das Paket; andernfalls löst der Einkauf eine Nachbestellung aus und informiert den Kunden. Nach dem Versand wird der Vorgang abgeschlossen.';
   input.focus();
 }
 function clearAll(){
@@ -1035,7 +1209,19 @@ $('zIn').onclick = ()=>{ zoom=Math.min(zoom*1.2,3); applyZoom(); };
 $('zOut').onclick = ()=>{ zoom=Math.max(zoom/1.2,0.2); applyZoom(); };
 $('zFit').onclick = fitZoom;
 
+// Diagrammtyp-Umschalter: merkt die Auswahl und wirkt auf die nächste Generierung.
+$('modeSel').onchange = e=>{
+  settings.diagramType = e.target.value;
+  try{ localStorage.setItem(LS.diag, settings.diagramType); }catch(_){}
+  addMsg(settings.diagramType==='flow'
+    ? 'Modus: klassisches Flussdiagramm (ISO 5807/DIN 66001, ohne Swimlanes). Die nächste Beschreibung wird als Flussdiagramm gebaut.'
+    : 'Modus: Swimlane / BPMN (Rollen als Bänder). Die nächste Beschreibung wird mit Swimlanes gebaut.','sys');
+  updateKeyHint();
+};
+
 restoreState();
+// Umschalter mit dem tatsächlich aktiven Modus (aus Einstellungen bzw. wiederhergestelltem Modell) synchronisieren.
+$('modeSel').value = settings.diagramType;
 if(chatHistory.length === 0){ addMsg(GREETING,'bot'); }
 updateKeyHint();
 </script>

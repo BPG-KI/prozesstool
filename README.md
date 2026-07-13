@@ -16,7 +16,22 @@ Voraussetzung: Python 3 ist installiert.
 4. Rechts im Chat einen Prozess beschreiben, z. B.
    *„Bestellprozess mit Kunde, Lager und Versand"* — oder den Button **＋ Beispiel** nutzen.
 
-Der `start.py`-Server löst das CORS-Problem und nutzt den **im Backend hinterlegten API-Key** (in `start.py`, Variable `MISTRAL_API_KEY`). Die HTML-Datei selbst enthält keinen Key.
+Der `start.py`-Server löst das CORS-Problem und nutzt den **im Backend hinterlegten API-Key** (in `config.py`, Variable `MISTRAL_API_KEY`). Die HTML-Datei selbst enthält keinen Key.
+
+**Ohne Python?** Alternativ liegt `server.js` bei (gleiche Funktion wie `start.py`, nur mit Node):
+```
+node server.js
+```
+Dann ebenfalls **http://localhost:8000/** öffnen. Der Key wird identisch gelesen (Umgebungsvariable `MISTRAL_API_KEY` vor `config.py`).
+
+## Diagrammtyp wählen
+
+Oben links in der Symbolleiste unter **„Typ"** lassen sich zwei Modi umschalten:
+
+- **Swimlane / BPMN** — rollenorientiert, mit Swimlanes (Fließrichtung links → rechts).
+- **Flussdiagramm** — klassisches Ablaufdiagramm nach **ISO 5807 / DIN 66001**, von oben nach unten, ohne Swimlanes (mit Start/Ende, Prozess, Entscheidung, Ein-/Ausgabe, Dokument, Teilprozess und Verbindungskreis).
+
+Die Auswahl wirkt auf die **nächste** Beschreibung; das Sprachmodell wendet je Modus eigene Regeln an. Beide Modi exportieren identisch nach VSDX/SVG/JSON.
 
 ## Hinweis zum Betrieb
 
@@ -47,7 +62,9 @@ Der aktuell hinterlegte API-Key wurde im Chat geteilt und sollte in der Mistral-
 ## Dateien
 
 - `visio-ki-generator.html` — die App (key-frei, ohne externe Abhängigkeiten)
-- `start.py` — lokaler Proxy, liest den Key aus `config.py`
+- `start.py` — lokaler Proxy (Python), liest den Key aus `config.py`
+- `server.js` — lokaler Proxy (Node), gleiche Funktion für Rechner ohne Python
 - `config.py` — enthält den API-Key (später sauber ersetzen)
-- `KONZEPT.md` — ausführliches Konzept
+- `KONZEPT.md` — ausführliches Konzept (Swimlane-Modus)
+- `KONZEPT-FLUSSDIAGRAMM.md` — Konzept des zweiten Modus (klassisches Flussdiagramm)
 - `README.md` — diese Anleitung
