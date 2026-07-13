@@ -1,0 +1,1229 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Visio Prozess-Generator</title>
+<style>
+  :root{
+    --office-blue:#2b579a; --office-blue-dark:#204072;
+    --neutral:#f3f2f1; --neutral-2:#e1dfdd; --line:#d0cfcd;
+    --canvas-bg:#e6e6e6; --page:#ffffff; --grid:#eef1f5;
+    --text:#201f1e; --text-soft:#605e5c;
+    --proc-f:#dae8fc; --proc-s:#6c8ebf;
+    --dec-f:#fff2cc; --dec-s:#d6b656;
+    --term-f:#d5e8d4; --term-s:#82b366;
+    --io-f:#e1d5e7; --io-s:#9673a6;
+    --lane-head:#eef2f8; --lane-band-a:#ffffff; --lane-band-b:#fbfcfe;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{font-family:"Segoe UI",system-ui,Arial,sans-serif;color:var(--text);background:var(--neutral);display:flex;flex-direction:column;overflow:hidden}
+
+  /* ---- Title bar ---- */
+  .titlebar{height:46px;background:var(--office-blue);color:#fff;display:flex;align-items:center;gap:10px;padding:0 12px;flex:0 0 auto}
+  .titlebar .logo{width:22px;height:22px;border-radius:3px;background:#fff;color:var(--office-blue);display:grid;place-items:center;font-weight:700;font-size:14px}
+  .titlebar .name{font-weight:600;font-size:15px}
+  .titlebar .doc{opacity:.8;font-size:13px}
+  .titlebar .spacer{flex:1}
+  .titlebar button{background:rgba(255,255,255,.12);color:#fff;border:0;border-radius:4px;height:30px;padding:0 12px;font-size:13px;cursor:pointer}
+  .titlebar button:hover{background:rgba(255,255,255,.24)}
+
+  /* ---- Ribbon (faux) ---- */
+  /* ---- Toolbar ---- */
+  .toolbar{height:40px;background:var(--neutral);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:6px;padding:0 10px;flex:0 0 auto}
+  .toolbar button{height:28px;border:1px solid var(--line);background:#fff;border-radius:4px;padding:0 10px;font-size:12.5px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;color:var(--text)}
+  .toolbar button:hover{background:#f7f7f7;border-color:#b9b8b6}
+  .toolbar button.primary{background:var(--office-blue);color:#fff;border-color:var(--office-blue)}
+  .toolbar button.primary:hover{background:#3464ad}
+  .toolbar button:disabled{opacity:.5;cursor:not-allowed}
+  .toolbar .sep{width:1px;height:22px;background:var(--line);margin:0 4px}
+  .toolbar .grow{flex:1}
+
+  /* ---- Main ---- */
+  .main{flex:1;display:flex;min-height:0}
+
+  /* Stencil */
+  .stencil{width:128px;background:var(--neutral);border-right:1px solid var(--line);padding:10px 8px;overflow:auto;flex:0 0 auto}
+  .stencil h4{margin:0 0 8px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--text-soft)}
+  .stencil .shape{display:flex;flex-direction:column;align-items:center;gap:4px;margin-bottom:12px}
+  .stencil .shape small{font-size:10.5px;color:var(--text-soft)}
+  .stencil svg{filter:drop-shadow(0 1px 1px rgba(0,0,0,.12))}
+
+  /* Canvas */
+  .canvas-wrap{flex:1;position:relative;background:var(--canvas-bg);overflow:auto;min-width:0}
+  .canvas-pad{padding:26px;display:inline-block;min-width:100%}
+  #diagram{background:var(--page);box-shadow:0 1px 6px rgba(0,0,0,.18);display:block}
+  .empty{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}
+  .empty div{max-width:340px;text-align:center;color:var(--text-soft);font-size:14px;line-height:1.6}
+  .empty .big{font-size:15px;color:#444;margin-bottom:6px}
+
+  .zoombar{position:absolute;right:16px;bottom:14px;background:#fff;border:1px solid var(--line);border-radius:6px;box-shadow:0 1px 5px rgba(0,0,0,.14);display:flex;align-items:center;overflow:hidden}
+  .zoombar button{border:0;background:#fff;width:34px;height:30px;font-size:16px;cursor:pointer;color:var(--text)}
+  .zoombar button:hover{background:#f0f0f0}
+  .zoombar .z{font-size:12px;width:50px;text-align:center;color:var(--text-soft);border-left:1px solid var(--line);border-right:1px solid var(--line);line-height:30px}
+
+  /* Chat */
+  .chat{width:368px;background:#fff;border-left:1px solid var(--line);display:flex;flex-direction:column;flex:0 0 auto}
+  .chat-head{height:40px;border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 14px;font-weight:600;font-size:13.5px;gap:8px}
+  .chat-head .dot{width:8px;height:8px;border-radius:50%;background:#22a06b}
+  .chat-log{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:10px}
+  .msg{max-width:90%;padding:9px 12px;border-radius:10px;font-size:13px;line-height:1.5;white-space:pre-wrap;word-wrap:break-word}
+  .msg.user{align-self:flex-end;background:var(--office-blue);color:#fff;border-bottom-right-radius:3px}
+  .msg.bot{align-self:flex-start;background:var(--neutral);color:var(--text);border-bottom-left-radius:3px}
+  .msg.err{align-self:flex-start;background:#fde7e9;color:#a4262c;border:1px solid #f3c9cd}
+  .msg.sys{align-self:center;background:transparent;color:var(--text-soft);font-size:11.5px;padding:2px}
+  .typing{align-self:flex-start;display:flex;gap:4px;padding:11px 13px;background:var(--neutral);border-radius:10px}
+  .typing i{width:6px;height:6px;border-radius:50%;background:#9a9a9a;animation:bl 1.1s infinite}
+  .typing i:nth-child(2){animation-delay:.18s}.typing i:nth-child(3){animation-delay:.36s}
+  @keyframes bl{0%,60%,100%{opacity:.25}30%{opacity:1}}
+  .chat-input{border-top:1px solid var(--line);padding:10px;display:flex;flex-direction:column;gap:8px}
+  .chat-input textarea{resize:none;border:1px solid var(--line);border-radius:8px;padding:9px 11px;font:inherit;font-size:13px;height:64px;outline:none}
+  .chat-input textarea:focus{border-color:var(--office-blue)}
+  .chat-input .row{display:flex;gap:8px}
+  .chat-input button{flex:1;background:var(--office-blue);color:#fff;border:0;border-radius:8px;height:36px;font-size:13.5px;cursor:pointer;font-weight:600}
+  .chat-input button:hover{background:#3464ad}
+  .chat-input button:disabled{opacity:.5;cursor:not-allowed}
+  .hint{font-size:11px;color:var(--text-soft)}
+
+  /* Shape reveal animation */
+  .gnode,.gconn,.glabel{opacity:0}
+  .gnode.show{animation:pop .34s ease forwards}
+  .gconn.show{animation:fade .3s ease forwards}
+  .glabel.show{animation:fade .3s ease forwards}
+  @keyframes pop{from{opacity:0;transform:translateY(6px) scale(.96)}to{opacity:1;transform:none}}
+  @keyframes fade{from{opacity:0}to{opacity:1}}
+  @media (prefers-reduced-motion:reduce){.gnode,.gconn,.glabel{opacity:1!important;animation:none!important}}
+
+  /* Modal */
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;align-items:center;justify-content:center;z-index:50}
+  .overlay.open{display:flex}
+  .modal{background:#fff;width:440px;max-width:92vw;border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.3);overflow:hidden}
+  .modal header{background:var(--office-blue);color:#fff;padding:13px 16px;font-weight:600;font-size:14px;display:flex;align-items:center}
+  .modal header .x{margin-left:auto;cursor:pointer;opacity:.85}
+  .modal .body{padding:16px;display:flex;flex-direction:column;gap:14px}
+  .field label{display:block;font-size:12.5px;font-weight:600;margin-bottom:5px}
+  .field input,.field select{width:100%;border:1px solid var(--line);border-radius:6px;padding:8px 10px;font:inherit;font-size:13px;outline:none}
+  .field input:focus,.field select:focus{border-color:var(--office-blue)}
+  .field .note{font-size:11px;color:var(--text-soft);margin-top:5px;line-height:1.5}
+  .warn{background:#fff4ce;border:1px solid #f2d98d;border-radius:6px;padding:9px 11px;font-size:11.5px;line-height:1.5;color:#665100}
+  .modal .actions{padding:12px 16px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end}
+  .modal .actions button{height:32px;border-radius:6px;padding:0 14px;font-size:13px;cursor:pointer;border:1px solid var(--line);background:#fff}
+  .modal .actions button.primary{background:var(--office-blue);color:#fff;border-color:var(--office-blue)}
+</style>
+</head>
+<body>
+
+  <div class="titlebar">
+    <div class="logo">V</div>
+    <div class="name">Prozess-Generator</div>
+    <div class="doc">— Zeichnung1.vsdx</div>
+    <div class="spacer"></div>
+  </div>
+
+  <div class="toolbar">
+    <label for="modeSel" style="font-size:12px;color:var(--text-soft)">Typ</label>
+    <select id="modeSel" title="Diagrammtyp wählen" style="height:28px;border:1px solid var(--line);background:#fff;border-radius:4px;font:inherit;font-size:12.5px;padding:0 6px;cursor:pointer;color:var(--text)">
+      <option value="swimlane">Swimlane / BPMN</option>
+      <option value="flow">Flussdiagramm</option>
+    </select>
+    <div class="sep"></div>
+    <button id="btnExample">＋ Beispiel</button>
+    <button id="btnClear">🗑 Leeren</button>
+    <div class="sep"></div>
+    <button id="btnSvg" disabled>⬇ SVG</button>
+    <button id="btnVsdx" disabled>⬇ VSDX</button>
+    <button id="btnJson" disabled>⬇ JSON</button>
+    <div class="grow"></div>
+    <span class="hint" id="status">Bereit</span>
+  </div>
+
+  <div class="main">
+    <!-- Stencil -->
+    <div class="stencil">
+      <h4>Shapes</h4>
+      <div class="shape"><svg width="74" height="34"><rect x="2" y="6" width="70" height="22" rx="11" fill="var(--term-f)" stroke="var(--term-s)"/></svg><small>Start / Ende</small></div>
+      <div class="shape"><svg width="74" height="34"><rect x="2" y="5" width="70" height="24" rx="2" fill="var(--proc-f)" stroke="var(--proc-s)"/></svg><small>Prozess</small></div>
+      <div class="shape"><svg width="74" height="40"><polygon points="37,3 71,20 37,37 3,20" fill="var(--dec-f)" stroke="var(--dec-s)"/></svg><small>Entscheidung</small></div>
+      <div class="shape"><svg width="74" height="34"><polygon points="14,6 72,6 60,28 2,28" fill="var(--io-f)" stroke="var(--io-s)"/></svg><small>Daten</small></div>
+      <div class="shape"><svg width="74" height="34"><rect x="2" y="5" width="70" height="24" rx="2" fill="var(--proc-f)" stroke="var(--proc-s)"/><line x1="9" y1="5" x2="9" y2="29" stroke="var(--proc-s)"/><line x1="65" y1="5" x2="65" y2="29" stroke="var(--proc-s)"/></svg><small>Teilprozess</small></div>
+    </div>
+
+    <!-- Canvas -->
+    <div class="canvas-wrap" id="canvasWrap">
+      <div class="canvas-pad"><svg id="diagram" width="900" height="500" viewBox="0 0 900 500"></svg></div>
+      <div class="empty" id="empty"><div><div class="big">Noch kein Diagramm</div>Beschreibe rechts im Chat einen Prozess — z.&nbsp;B. „Bestellprozess mit Kunde, Lager und Versand" — und das Flussdiagramm mit Swimlanes wird hier aufgebaut.</div></div>
+      <div class="zoombar">
+        <button id="zOut" title="Verkleinern">−</button>
+        <div class="z" id="zVal">100%</div>
+        <button id="zIn" title="Vergrößern">+</button>
+        <button id="zFit" title="Einpassen">⤢</button>
+      </div>
+    </div>
+
+    <!-- Chat -->
+    <div class="chat">
+      <div class="chat-head"><span class="dot"></span>KI-Assistent (Mistral)</div>
+      <div class="chat-log" id="log"></div>
+      <div class="chat-input">
+        <textarea id="input" placeholder="Prozess beschreiben oder Änderung anweisen… (Strg/⌘+Enter zum Senden)"></textarea>
+        <div class="row"><button id="send">Senden</button></div>
+        <div class="hint" id="keyHint"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+"use strict";
+/* ====================== Konfiguration & State ====================== */
+const LS = { key:'vkg_apikey', model:'vkg_model', ep:'vkg_endpoint', diag:'vkg_diagramtype' };
+const P  = { chat:'vkg_chat', api:'vkg_apimsgs', model:'vkg_model_json' };
+const GREETING = 'Hallo! Beschreibe mir einen Geschäftsprozess, und ich baue daraus ein Visio-Flussdiagramm mit Swimlanes. Folgeanweisungen bauen auf dem bestehenden Diagramm auf – es wird nichts verworfen.';
+function defaultEndpoint(){
+  // file:// (Doppelklick) → direkter Mistral-Call (nur UI-Test, ohne KI).
+  // Sonst (lokaler Proxy ODER Railway) → same-origin /proxy, löst CORS.
+  if(location.protocol === 'file:') return 'https://api.mistral.ai/v1/chat/completions';
+  return location.origin + '/proxy';
+}
+const settings = {
+  apiKey: localStorage.getItem(LS.key) || '',
+  model: localStorage.getItem(LS.model) || 'mistral-large-latest',
+  endpoint: localStorage.getItem(LS.ep) || defaultEndpoint(),
+  // Diagrammtyp: 'swimlane' (BPMN-nah, Rollen als Bänder) oder 'flow' (klassisches Flussdiagramm nach ISO 5807/DIN 66001)
+  diagramType: localStorage.getItem(LS.diag) || 'swimlane'
+};
+let currentModel = null;        // aktuelles Prozessmodell (JSON)
+let currentLayout = null;       // berechnetes Layout
+let apiMessages = [];           // Konversationsverlauf für die API
+let chatHistory = [];           // sichtbarer Chatverlauf (persistiert)
+let busy = false;
+let zoom = 1;
+
+/* ====================== Persistenz ====================== */
+function persist(){
+  try{
+    localStorage.setItem(P.chat, JSON.stringify(chatHistory));
+    localStorage.setItem(P.api, JSON.stringify(apiMessages));
+    if(currentModel) localStorage.setItem(P.model, JSON.stringify(currentModel));
+    else localStorage.removeItem(P.model);
+  }catch(e){ /* localStorage evtl. nicht verfügbar (file://) – dann nur In-Memory */ }
+}
+function restoreState(){
+  let ch=null, ap=null, md=null;
+  try{
+    ch = JSON.parse(localStorage.getItem(P.chat) || 'null');
+    ap = JSON.parse(localStorage.getItem(P.api) || 'null');
+    md = JSON.parse(localStorage.getItem(P.model) || 'null');
+  }catch(e){ return; }
+  if(Array.isArray(ap)) apiMessages = ap;
+  // 1) Modell zuerst, damit anschließende persist()-Aufrufe es nicht verwerfen
+  if(md && md.nodes){
+    try{
+      currentModel = md;
+      // Modus aus dem gespeicherten Modell übernehmen (fehlt das Feld: swimlane).
+      settings.diagramType = md.diagramType || 'swimlane';
+      currentLayout = layout(md);
+      renderLayout(currentLayout, false);
+      $('btnSvg').disabled = $('btnVsdx').disabled = $('btnJson').disabled = false;
+    }catch(e){ currentModel = null; currentLayout = null; }
+  }
+  // 2) Chatverlauf wiederherstellen
+  if(Array.isArray(ch) && ch.length){
+    log.innerHTML = ''; chatHistory = [];
+    ch.forEach(m => addMsg(m.text, m.cls));
+  }
+  persist();
+}
+
+/* ====================== System-Prompt ====================== */
+const SYSTEM_PROMPT =
+`Du erzeugst aus einer Prozessbeschreibung ein Flussdiagramm-Datenmodell.
+Antworte AUSSCHLIESSLICH mit einem gültigen JSON-Objekt nach diesem Schema – kein Markdown, kein Fließtext:
+{"title":string,"lanes":string[],"nodes":[{"id":string,"label":string,"type":"start"|"end"|"process"|"decision"|"io"|"subprocess","lane":string}],"edges":[{"from":string,"to":string,"label":string}]}
+Regeln:
+- lanes sind die beteiligten Rollen/Abteilungen (Swimlanes). Jede node.lane MUSS exakt einem Eintrag in lanes entsprechen.
+- Genau ein Knoten mit type "start"; mindestens ein "end".
+- Jede "decision" hat mindestens zwei ausgehende edges mit aussagekräftigen labels (z. B. "Ja"/"Nein").
+- Kurze, prägnante labels. ids fortlaufend als n1, n2, n3 …
+- Verwende mehrere Swimlanes, wenn der Prozess mehrere Rollen umfasst.
+- Schreibe labels und title auf Deutsch, außer der Nutzer wünscht etwas anderes.
+- Wenn ein bestehendes Modell geändert werden soll, gib stets das VOLLSTÄNDIGE aktualisierte Modell zurück. Übernimm dabei JEDEN unveränderten Knoten und JEDE unveränderte Kante exakt mit der bisherigen id/den bisherigen Feldern - kopiere sie unverändert aus dem bestehenden Modell, statt sie neu zu formulieren.
+- Erzeuge NUR dann einen neuen Knoten, wenn die Anweisung ausdrücklich einen neuen Schritt/eine neue Rolle beschreibt. Soll lediglich eine Kante zwischen bereits vorhandenen Knoten ergänzt werden, füge NUR ein neues Element in "edges" hinzu (mit den bestehenden ids) und lasse "nodes" unverändert. Erzeuge insbesondere niemals einen zweiten "start"- oder zusätzlichen "end"-Knoten, wenn schon einer mit vergleichbarer Bedeutung existiert.`;
+
+// Zweiter Modus: klassisches Flussdiagramm (Ablaufdiagramm) nach ISO 5807 / DIN 66001 – OHNE Swimlanes,
+// rein zeitlich-logischer Ablauf von oben nach unten. Eigene Regeln + eigenes Schema (kein "lanes"/"lane").
+const SYSTEM_PROMPT_FLOW =
+`Du erzeugst aus einer Prozessbeschreibung ein klassisches Flussdiagramm (Ablaufdiagramm) nach ISO 5807 / DIN 66001.
+Antworte AUSSCHLIESSLICH mit einem gültigen JSON-Objekt nach diesem Schema – kein Markdown, kein Fließtext:
+{"title":string,"diagramType":"flow","nodes":[{"id":string,"label":string,"type":"start"|"end"|"process"|"decision"|"io"|"subprocess"|"document"|"connector"}],"edges":[{"from":string,"to":string,"label":string}]}
+Regeln (State of the Art):
+- KEINE Swimlanes und KEINE Rollen/Abteilungen. Der Ablauf ist rein zeitlich-logisch und läuft von oben nach unten.
+- Genau EIN Knoten mit type "start"; mindestens EIN klar benanntes "end".
+- Jeder Schritt ist genau eine Handlung: "process"-Labels beginnen mit einem Verb (z. B. "Rechnung prüfen"), kurz und aktiv.
+- "decision" ist als Ja/Nein- bzw. Fall-Frage formuliert (z. B. "Betrag korrekt?") und hat mindestens ZWEI ausgehende edges mit eindeutigen labels (z. B. "Ja"/"Nein"). Jeder Zweig wird später wieder zusammengeführt oder endet an einem "end".
+- Kein Knoten außer "end" ohne ausgehende Kante; jeder Knoten außer "start" muss erreichbar sein (keine losen Enden).
+- Symbolwahl: "io" (Parallelogramm) für Ein-/Ausgaben, "document" für erzeugte Dokumente/Belege, "subprocess" für ausgelagerte Teilabläufe. Für Rücksprünge/Schleifen darf ein "connector" (Verbindungskreis) statt einer sehr langen Rückkante gesetzt werden.
+- ids fortlaufend als n1, n2, n3 … . Schreibe labels und title auf Deutsch, außer der Nutzer wünscht etwas anderes.
+- Wenn ein bestehendes Modell geändert werden soll, gib stets das VOLLSTÄNDIGE aktualisierte Modell zurück und übernimm jeden unveränderten Knoten und jede unveränderte Kante exakt mit der bisherigen id/den bisherigen Feldern.`;
+
+/* ====================== DOM ====================== */
+const $ = id => document.getElementById(id);
+const log = $('log'), input = $('input'), svg = $('diagram');
+
+/* ====================== Chat-Helfer ====================== */
+function addMsg(text, cls){
+  const d = document.createElement('div');
+  d.className = 'msg ' + cls; d.textContent = text;
+  log.appendChild(d); log.scrollTop = log.scrollHeight;
+  chatHistory.push({ text, cls }); persist();
+  return d;
+}
+function showTyping(){
+  const t = document.createElement('div');
+  t.className = 'typing'; t.innerHTML = '<i></i><i></i><i></i>';
+  log.appendChild(t); log.scrollTop = log.scrollHeight; return t;
+}
+function setStatus(s){ $('status').textContent = s; }
+function setBusy(b){
+  busy = b; $('send').disabled = b; $('btnExample').disabled = b;
+  input.disabled = b;
+}
+
+/* ====================== Mistral-Aufruf ====================== */
+function isProxy(){ return /\/proxy\/?$/.test(settings.endpoint); }
+async function callMistral(userText){
+  if(!settings.apiKey && !isProxy()){ throw new Error('Backend nicht erreichbar. Bitte die App über "python start.py" starten — der API-Key liegt im Backend.'); }
+  apiMessages.push({ role:'user', content:userText });
+  // System-Prompt nach aktivem Diagrammtyp wählen.
+  const sysPrompt = settings.diagramType==='flow' ? SYSTEM_PROMPT_FLOW : SYSTEM_PROMPT;
+  const msgs = [{ role:'system', content:sysPrompt }];
+  // Bestehendes Modell nur dann als Kontext anhängen, wenn es zum aktuellen Modus passt –
+  // sonst würde ein Swimlane-Modell die Flussdiagramm-Erzeugung (oder umgekehrt) verfälschen.
+  const prevMode = (currentModel && currentModel.diagramType) || 'swimlane';
+  if(currentModel && prevMode === settings.diagramType){
+    msgs.push({ role:'system', content:
+      'BESTEHENDES MODELL — baue darauf auf, behalte vorhandene Knoten/Kanten (und ggf. Lanes) bei und ändere nur, was die neue Anweisung verlangt. Verwirf nichts ohne ausdrücklichen Auftrag. Gib danach das VOLLSTÄNDIGE aktualisierte Modell zurück:\n' + JSON.stringify(currentModel) });
+  }
+  msgs.push(...apiMessages);
+  const body = {
+    model: settings.model,
+    messages: msgs,
+    response_format: { type:'json_object' },
+    temperature: 0.2
+  };
+  let res;
+  try{
+    const headers = { 'Content-Type':'application/json' };
+    if(settings.apiKey) headers['Authorization'] = 'Bearer ' + settings.apiKey;
+    res = await fetch(settings.endpoint, {
+      method:'POST',
+      headers,
+      body: JSON.stringify(body)
+    });
+  }catch(netErr){
+    throw new Error('Netzwerk-/CORS-Fehler beim Aufruf der API. Tipp: App über "python start.py" starten (lokaler Proxy) und Endpoint auf den Proxy stellen.');
+  }
+  if(!res.ok){
+    let detail = '';
+    try{ detail = (await res.json()).message || ''; }catch(e){}
+    if(res.status === 401) throw new Error('API-Key ungültig (401). Bitte den Key im Backend (config.py bzw. Umgebungsvariable MISTRAL_API_KEY) prüfen.');
+    throw new Error('API-Fehler ' + res.status + (detail ? (': ' + detail) : ''));
+  }
+  const data = await res.json();
+  const content = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+  if(!content) throw new Error('Leere Antwort der API.');
+  apiMessages.push({ role:'assistant', content });
+  return content;
+}
+
+function parseModel(content){
+  let txt = content.trim();
+  // Falls doch Codefences kamen, entfernen
+  txt = txt.replace(/^```(json)?/i,'').replace(/```$/,'').trim();
+  let obj;
+  try{ obj = JSON.parse(txt); }
+  catch(e){
+    const a = txt.indexOf('{'), b = txt.lastIndexOf('}');
+    if(a>=0 && b>a) obj = JSON.parse(txt.slice(a, b+1));
+    else throw new Error('Antwort war kein gültiges JSON.');
+  }
+  return obj;
+}
+
+/* ====================== Validierung ====================== */
+function validateModel(m){
+  const errs = [];
+  if(!m || typeof m!=='object') return ['Kein Objekt.'];
+  if(!Array.isArray(m.lanes) || !m.lanes.length) errs.push('lanes fehlen.');
+  if(!Array.isArray(m.nodes) || !m.nodes.length) errs.push('nodes fehlen.');
+  if(!Array.isArray(m.edges)) m.edges = [];
+  if(errs.length) return errs;
+  const laneSet = new Set(m.lanes);
+  const ids = new Set();
+  let starts = 0, ends = 0;
+  m.nodes.forEach(n=>{
+    if(!n.id) errs.push('Knoten ohne id.');
+    ids.add(n.id);
+    if(!laneSet.has(n.lane)){ n.lane = m.lanes[0]; } // mild korrigieren
+    if(!n.label || !String(n.label).trim()) errs.push('Knoten "'+(n.id||'?')+'" hat kein Label.');
+    if(n.type==='start') starts++;
+    if(n.type==='end') ends++;
+  });
+  m.edges.forEach(e=>{
+    if(!ids.has(e.from) || !ids.has(e.to)) errs.push('Kante verweist auf unbekannten Knoten.');
+  });
+  if(starts===0) errs.push('Kein Start-Knoten.');
+  return errs;
+}
+
+// Validierung für den Flussdiagramm-Modus: keine Lane-Pflicht, dafür strengere Ablauf-Regeln.
+function validateFlow(m){
+  const errs = [];
+  if(!m || typeof m!=='object') return ['Kein Objekt.'];
+  if(!Array.isArray(m.nodes) || !m.nodes.length) errs.push('nodes fehlen.');
+  if(!Array.isArray(m.edges)) m.edges = [];
+  if(errs.length) return errs;
+  const ids = new Set();
+  let starts = 0, ends = 0;
+  m.nodes.forEach(n=>{
+    if(!n.id) errs.push('Knoten ohne id.');
+    ids.add(n.id);
+    if(!n.label || !String(n.label).trim()) errs.push('Knoten "'+(n.id||'?')+'" hat kein Label.');
+    if(n.type==='start') starts++;
+    if(n.type==='end') ends++;
+  });
+  const outc = {}; m.nodes.forEach(n=>outc[n.id]=0);
+  m.edges.forEach(e=>{
+    if(!ids.has(e.from) || !ids.has(e.to)){ errs.push('Kante verweist auf unbekannten Knoten.'); return; }
+    outc[e.from]++;
+  });
+  if(starts!==1) errs.push('Es muss genau einen Start-Knoten geben.');
+  if(ends===0) errs.push('Kein End-Knoten.');
+  // Jede Entscheidung braucht mindestens zwei ausgehende Kanten (Verzweigung).
+  m.nodes.forEach(n=>{ if(n.type==='decision' && outc[n.id] < 2) errs.push('Entscheidung "'+(n.label||n.id)+'" braucht mindestens zwei ausgehende Zweige.'); });
+  // Keine losen Enden: jeder Knoten außer end/connector muss weiterführen.
+  m.nodes.forEach(n=>{ if(n.type!=='end' && n.type!=='connector' && outc[n.id]===0) errs.push('Knoten "'+(n.label||n.id)+'" hat keine ausgehende Kante.'); });
+  return errs;
+}
+
+// Dispatcher: wählt Validierung und Layout passend zum Diagrammtyp des Modells.
+function validate(model){ return (model && model.diagramType==='flow') ? validateFlow(model) : validateModel(model); }
+function layout(model){ return (model && model.diagramType==='flow') ? computeLayoutFlow(model) : computeLayout(model); }
+
+/* ====================== Geometrie-Konstanten ====================== */
+const G = {
+  RULER:22, HEADER_W:128, PAD:34,
+  COL:210, LANE_MIN:150, SLOT:104,
+  margin:26
+};
+function shapeSize(type){
+  if(type==='decision') return {w:132, h:86};
+  if(type==='start'||type==='end') return {w:150, h:50};
+  if(type==='connector') return {w:46, h:46};
+  if(type==='document') return {w:166, h:72};
+  return {w:166, h:64};
+}
+
+/* ====================== Auto-Layout ====================== */
+// Spaltenzuordnung (Fließrichtung). Zyklensicher: Rückkanten werden per DFS
+// erkannt und beim Längster-Pfad-Ranking ignoriert, damit Schleifen die
+// Breite nicht aufblähen.
+function computeColumns(m, byId){
+  const out = {}; m.nodes.forEach(n=>out[n.id]=[]);
+  m.edges.forEach(e=>{ if(byId[e.from] && byId[e.to]) out[e.from].push(e.to); });
+  const color = {}; m.nodes.forEach(n=>color[n.id]=0); // 0 weiß, 1 grau, 2 schwarz
+  const back = new Set();
+  function dfs(u){
+    color[u]=1;
+    for(const v of out[u]){
+      if(color[v]===1) back.add(u+'\u0001'+v);   // v ist Vorfahre → Rückkante
+      else if(color[v]===0) dfs(v);
+    }
+    color[u]=2;
+  }
+  const indeg = {}; m.nodes.forEach(n=>indeg[n.id]=0);
+  m.edges.forEach(e=>{ if(byId[e.to]) indeg[e.to]++; });
+  const roots = m.nodes.filter(n=>n.type==='start' || indeg[n.id]===0).map(n=>n.id);
+  (roots.length ? roots : m.nodes.map(n=>n.id)).forEach(id=>{ if(color[id]===0) dfs(id); });
+  m.nodes.forEach(n=>{ if(color[n.id]===0) dfs(n.id); }); // isolierte Zyklen abdecken
+  const col = {}; m.nodes.forEach(n=>col[n.id]=0);
+  const fwd = m.edges.filter(e=>byId[e.from] && byId[e.to] && !back.has(e.from+'\u0001'+e.to));
+  for(let it=0; it<m.nodes.length; it++){
+    let changed = false;
+    fwd.forEach(e=>{ if(col[e.to] < col[e.from]+1){ col[e.to]=col[e.from]+1; changed=true; } });
+    if(!changed) break;
+  }
+  return col;
+}
+function computeLayout(m){
+  const lanes = m.lanes.slice();
+  const laneIndex = {}; lanes.forEach((l,i)=>laneIndex[l]=i);
+  const byId = {}; m.nodes.forEach(n=>byId[n.id]=n);
+
+  const col = computeColumns(m, byId);
+
+  // Gruppierung lane|col
+  const groups = {};
+  m.nodes.forEach(n=>{
+    const li = laneIndex[n.lane] != null ? laneIndex[n.lane] : 0;
+    const key = li + '|' + col[n.id];
+    (groups[key] = groups[key] || []).push(n.id);
+  });
+
+  // Lane-Höhen anhand max. Stapelung
+  const maxStack = {};
+  lanes.forEach((l,li)=>{
+    let mx = 1;
+    Object.keys(groups).forEach(k=>{ if(k.split('|')[0]==String(li)) mx = Math.max(mx, groups[k].length); });
+    maxStack[li] = mx;
+  });
+  const laneHeight = lanes.map((l,li)=> Math.max(G.LANE_MIN, maxStack[li]*G.SLOT + 36));
+  const laneTop = []; let acc = G.RULER;
+  laneHeight.forEach(h=>{ laneTop.push(acc); acc += h; });
+
+  const maxCol = Math.max(0, ...m.nodes.map(n=>col[n.id]));
+  const pageW = G.HEADER_W + G.PAD*2 + (maxCol+1)*G.COL;
+  const pageH = acc;
+
+  // Positionen
+  const placed = {};
+  const counters = {};
+  const nodes = m.nodes.map(n=>{
+    const li = laneIndex[n.lane] != null ? laneIndex[n.lane] : 0;
+    const c = col[n.id];
+    const key = li + '|' + c;
+    const total = groups[key].length;
+    const k = counters[key] = (counters[key]==null? 0 : counters[key]+1);
+    const sz = shapeSize(n.type);
+    const cx = G.HEADER_W + G.PAD + G.COL/2 + c*G.COL;
+    const bandCenter = laneTop[li] + laneHeight[li]/2;
+    const stackSpan = (total-1) * G.SLOT;
+    const cy = bandCenter - stackSpan/2 + k*G.SLOT;
+    // Fallback auf die id, falls das Modell (z.B. durch eine lueckenhafte KI-Antwort)
+    // kein Label liefert - sonst rendert die Box lautlos leer, ohne dass es auffaellt.
+    const label = (n.label && String(n.label).trim()) ? n.label : n.id;
+    const node = { id:n.id, label, type:n.type, lane:n.lane, x:cx, y:cy, w:sz.w, h:sz.h, col:c, li };
+    placed[n.id] = node; return node;
+  });
+
+  return {
+    lanes, laneIndex, laneTop, laneHeight, pageW, pageH, headerW:G.HEADER_W, flow:false,
+    nodes, byId:placed, edges:m.edges.filter(e=>placed[e.from] && placed[e.to]), title:m.title||'Prozess'
+  };
+}
+
+/* ====================== Auto-Layout: Flussdiagramm (vertikal, ohne Lanes) ====================== */
+// Nutzt denselben zyklensicheren Längster-Pfad-Rang wie computeColumns, bildet ihn aber auf
+// ZEILEN (oben→unten) statt Spalten ab. Innerhalb eines Rangs werden mehrere Knoten (z. B. die
+// Ja/Nein-Ziele einer Entscheidung) nebeneinander gesetzt; die Reihenfolge folgt der mittleren
+// X-Position der bereits platzierten Vorgänger (Baryzentrum), das reduziert Kreuzungen.
+function computeLayoutFlow(m){
+  const byId = {}; m.nodes.forEach(n=>byId[n.id]=n);
+  const rank = computeColumns(m, byId);
+  const maxRank = Math.max(0, ...m.nodes.map(n=>rank[n.id]||0));
+  const ranks = []; for(let r=0;r<=maxRank;r++) ranks.push([]);
+  m.nodes.forEach(n=> ranks[rank[n.id]||0].push(n.id));
+
+  const preds = {}; m.nodes.forEach(n=>preds[n.id]=[]);
+  m.edges.forEach(e=>{ if(byId[e.from] && byId[e.to]) preds[e.to].push(e.from); });
+
+  const COLW = 210, ROWH = 138;
+  const marginX = 56, marginTop = G.RULER + 34;
+  const maxInRank = Math.max(1, ...ranks.map(a=>a.length));
+  const pageW = marginX*2 + maxInRank*COLW;
+  const centerX = pageW/2;
+
+  const placed = {}; const nodes = [];
+  ranks.forEach((ids,r)=>{
+    const bary = id=>{
+      const ps = preds[id].filter(p=>placed[p]);
+      if(!ps.length) return centerX;
+      return ps.reduce((s,p)=>s+placed[p].x,0)/ps.length;
+    };
+    ids.sort((a,b)=> bary(a)-bary(b));
+    const count = ids.length;
+    ids.forEach((id,k)=>{
+      const n = byId[id];
+      const sz = shapeSize(n.type);
+      const x = centerX + (k-(count-1)/2)*COLW;
+      const y = marginTop + r*ROWH + ROWH/2;
+      const label = (n.label && String(n.label).trim()) ? n.label : n.id;
+      const node = { id, label, type:n.type, lane:null, x, y, w:sz.w, h:sz.h, col:r, li:0 };
+      placed[id] = node; nodes.push(node);
+    });
+  });
+  const pageH = marginTop + (maxRank+1)*ROWH + 24;
+
+  return {
+    lanes:[], laneIndex:{}, laneTop:[], laneHeight:[], pageW, pageH, headerW:marginX, flow:true,
+    nodes, byId:placed, edges:m.edges.filter(e=>placed[e.from] && placed[e.to]), title:m.title||'Prozess'
+  };
+}
+
+/* ====================== Connector-Routing ====================== */
+function anchors(s,t,sOff,eOff){
+  sOff = sOff||0; eOff = eOff||0;
+  const dx = t.x - s.x, dy = t.y - s.y;
+  let start, end, horiz;
+  if(Math.abs(dx) >= Math.abs(dy)){
+    horiz = true;
+    // Auffächerung entlang der Kante (vertikal), begrenzt auf die Shape-Höhe
+    const so = clamp(sOff, -(s.h/2-6), s.h/2-6);
+    const eo = clamp(eOff, -(t.h/2-6), t.h/2-6);
+    if(dx>=0){ start=[s.x+s.w/2, s.y+so]; end=[t.x-t.w/2, t.y+eo]; }
+    else     { start=[s.x-s.w/2, s.y+so]; end=[t.x+t.w/2, t.y+eo]; }
+  }else{
+    horiz = false;
+    const so = clamp(sOff, -(s.w/2-6), s.w/2-6);
+    const eo = clamp(eOff, -(t.w/2-6), t.w/2-6);
+    if(dy>=0){ start=[s.x+so, s.y+s.h/2]; end=[t.x+eo, t.y-t.h/2]; }
+    else     { start=[s.x+so, s.y-s.h/2]; end=[t.x+eo, t.y+t.h/2]; }
+  }
+  return {start,end,horiz};
+}
+function clamp(v,min,max){ return v<min?min:(v>max?max:v); }
+function fanOffset(i,count){ return count<=1 ? 0 : (i-(count-1)/2) * Math.min(14, 30/count); }
+
+// Ein achsparalleles Liniensegment gegen ein (leicht gepolstertes) Rechteck testen.
+function rectFor(n){ return {x1:n.x-n.w/2, y1:n.y-n.h/2, x2:n.x+n.w/2, y2:n.y+n.h/2}; }
+function segIntersectsRect(x1,y1,x2,y2,r,pad){
+  pad = pad||0;
+  const rx1=r.x1-pad, ry1=r.y1-pad, rx2=r.x2+pad, ry2=r.y2+pad;
+  if(Math.abs(y1-y2)<0.01){
+    if(y1<ry1||y1>ry2) return false;
+    const lo=Math.min(x1,x2), hi=Math.max(x1,x2);
+    return hi>rx1 && lo<rx2;
+  }
+  if(Math.abs(x1-x2)<0.01){
+    if(x1<rx1||x1>rx2) return false;
+    const lo=Math.min(y1,y2), hi=Math.max(y1,y2);
+    return hi>ry1 && lo<ry2;
+  }
+  return false; // Verbinder sind ausschliesslich achsparallel
+}
+function pathBlocked(points, obstacles){
+  for(let i=0;i<points.length-1;i++){
+    const [x1,y1]=points[i], [x2,y2]=points[i+1];
+    for(const n of obstacles){ if(segIntersectsRect(x1,y1,x2,y2, rectFor(n), 6)) return true; }
+  }
+  return false;
+}
+function basicPoints(a){
+  const [sx,sy]=a.start, [ex,ey]=a.end;
+  if(a.horiz){ const mx=(sx+ex)/2; return [[sx,sy],[mx,sy],[mx,ey],[ex,ey]]; }
+  const my=(sy+ey)/2; return [[sx,sy],[sx,my],[ex,my],[ex,ey]];
+}
+// Liefert die Verbinder-Route als Punktliste. Kreuzt der direkte (max. 1 Knick)
+// Pfad eine andere Box, wird eine Reihe von Ausweich-Kandidaten durchprobiert
+// (Lane-Raender aller beteiligten und dazwischenliegenden Lanes, Kopf-Spalte,
+// Seitenraender) und der erste kollisionsfreie genommen - statt nur 1-2 feste
+// Kandidaten zu pruefen und sonst stillschweigend durch die Box zu zeichnen.
+function routeEdge(s, t, a, L){
+  const basic = basicPoints(a);
+  const obstacles = L.nodes.filter(n=> n.id!==s.id && n.id!==t.id);
+  if(!pathBlocked(basic, obstacles)) return basic;
+  const [sx,sy]=a.start, [ex,ey]=a.end;
+
+  const tryY = midY=>{ const p=[[sx,sy],[sx,midY],[ex,midY],[ex,ey]]; return pathBlocked(p,obstacles)?null:p; };
+  const tryX = midX=>{ const p=[[sx,sy],[midX,sy],[midX,ey],[ex,ey]]; return pathBlocked(p,obstacles)?null:p; };
+
+  const loFrom=Math.min(s.li,t.li), hiTo=Math.max(s.li,t.li);
+  const yCandidates=[sy, ey];
+  for(let li=Math.max(0,loFrom-1); li<=Math.min(L.lanes.length-1,hiTo+1); li++){
+    yCandidates.push(L.laneTop[li]+16, L.laneTop[li]+L.laneHeight[li]-16);
+  }
+  yCandidates.push(G.RULER+10, L.pageH-10);
+  const xCandidates=[sx, ex, G.HEADER_W+10, L.pageW-10];
+
+  // Zuerst in Richtung der dominanten Achse ausweichen (natuerlicher Ausweich-
+  // Kanal fuer diese Kantenrichtung), danach die andere Achse als Rueckfall.
+  const order = a.horiz ? [ [yCandidates,tryY], [xCandidates,tryX] ] : [ [xCandidates,tryX], [yCandidates,tryY] ];
+  for(const [cands,fn] of order){
+    for(const c of cands){ const r=fn(c); if(r) return r; }
+  }
+  return basic; // kein freier Ausweg gefunden - Original beibehalten
+}
+function polylinePath(points){
+  return points.map((p,i)=> (i===0?'M':'L')+p[0]+','+p[1]).join(' ');
+}
+function connectorLabelPos(points){
+  // Label auf dem laengsten geraden Segment platzieren (nicht auf einem kurzen
+  // Ausweich-/Auffaecherungs-Segment) und mit festem Abstand direkt darueber
+  // (horizontales Segment) bzw. daneben (vertikales Segment) setzen, statt es
+  // auf die Linie zu legen - das wirkte zuvor wie "irgendwo in der Naehe".
+  const GAP = 11;
+  let best=null, bestLen=-1;
+  for(let i=0;i<points.length-1;i++){
+    const [x1,y1]=points[i], [x2,y2]=points[i+1];
+    const len = Math.hypot(x2-x1,y2-y1);
+    if(len>bestLen){ bestLen=len; best=[x1,y1,x2,y2]; }
+  }
+  const [x1,y1,x2,y2]=best;
+  const midx=(x1+x2)/2, midy=(y1+y2)/2;
+  if(Math.abs(y1-y2)<0.01) return [midx, midy-GAP];
+  return [midx+GAP, midy];
+}
+
+/* ====================== SVG-Rendering ====================== */
+const SVGNS = 'http://www.w3.org/2000/svg';
+function el(name, attrs){ const e=document.createElementNS(SVGNS,name); for(const k in attrs) e.setAttribute(k, attrs[k]); return e; }
+function esc(s){ return String(s).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function wrapText(s, max){
+  const words = String(s).split(/\s+/); const lines=[]; let cur='';
+  words.forEach(w=>{
+    if((cur+' '+w).trim().length > max){ if(cur) lines.push(cur); cur=w; }
+    else cur=(cur?cur+' ':'')+w;
+  });
+  if(cur) lines.push(cur);
+  return lines.slice(0,3);
+}
+function shapeColors(type){
+  if(type==='decision') return ['var(--dec-f)','var(--dec-s)'];
+  if(type==='start'||type==='end') return ['var(--term-f)','var(--term-s)'];
+  if(type==='io') return ['var(--io-f)','var(--io-s)'];
+  if(type==='connector') return ['#ededed','#8c8c8c'];
+  if(type==='document') return ['var(--proc-f)','var(--proc-s)'];
+  return ['var(--proc-f)','var(--proc-s)'];
+}
+function shapeNode(g, n){
+  const [fill,stroke] = shapeColors(n.type);
+  const x = n.x - n.w/2, y = n.y - n.h/2;
+  let shape;
+  if(n.type==='decision'){
+    shape = el('polygon',{points:`${n.x},${y} ${x+n.w},${n.y} ${n.x},${y+n.h} ${x},${n.y}`, fill, stroke, 'stroke-width':1.4, filter:'url(#sh)'});
+  }else if(n.type==='start'||n.type==='end'){
+    shape = el('rect',{x, y, width:n.w, height:n.h, rx:n.h/2, ry:n.h/2, fill, stroke, 'stroke-width':1.4, filter:'url(#sh)'});
+  }else if(n.type==='io'){
+    const sk=14;
+    shape = el('polygon',{points:`${x+sk},${y} ${x+n.w},${y} ${x+n.w-sk},${y+n.h} ${x},${y+n.h}`, fill, stroke, 'stroke-width':1.4, filter:'url(#sh)'});
+  }else if(n.type==='connector'){
+    shape = el('circle',{cx:n.x, cy:n.y, r:Math.min(n.w,n.h)/2, fill, stroke, 'stroke-width':1.4, filter:'url(#sh)'});
+  }else if(n.type==='document'){
+    // Rechteck mit gewellter Unterkante (Dokument-Symbol nach ISO 5807).
+    const amp=7, yb=y+n.h;
+    const d=`M ${x} ${y} L ${x+n.w} ${y} L ${x+n.w} ${yb-amp} `+
+            `Q ${x+n.w*0.75} ${yb-amp*2.4} ${x+n.w*0.5} ${yb-amp} T ${x} ${yb-amp} Z`;
+    shape = el('path',{d, fill, stroke, 'stroke-width':1.4, filter:'url(#sh)'});
+  }else{
+    shape = el('rect',{x, y, width:n.w, height:n.h, rx:3, ry:3, fill, stroke, 'stroke-width':1.4, filter:'url(#sh)'});
+  }
+  g.appendChild(shape);
+  if(n.type==='subprocess'){
+    g.appendChild(el('line',{x1:x+8,y1:y,x2:x+8,y2:y+n.h,stroke,'stroke-width':1.2}));
+    g.appendChild(el('line',{x1:x+n.w-8,y1:y,x2:x+n.w-8,y2:y+n.h,stroke,'stroke-width':1.2}));
+  }
+  const lines = wrapText(n.label, n.type==='decision'?14:20);
+  const t = el('text',{x:n.x, y:n.y, 'text-anchor':'middle', 'font-size':12.5, fill:'#1c1c1c', 'font-family':'Segoe UI, sans-serif'});
+  const start = n.y - (lines.length-1)*7.5;
+  lines.forEach((ln,i)=>{ const ts=el('tspan',{x:n.x, y:start + i*15}); ts.textContent=ln; t.appendChild(ts); });
+  g.appendChild(t);
+}
+
+function renderLayout(L, animate){
+  $('empty').style.display = 'none';
+  zoom = 1;
+  // SVG zurücksetzen
+  while(svg.firstChild) svg.removeChild(svg.firstChild);
+  svg.setAttribute('viewBox', `0 0 ${L.pageW} ${L.pageH}`);
+  applyZoom(L);
+
+  // defs: Schatten + Pfeil
+  const defs = el('defs',{});
+  defs.innerHTML =
+    '<filter id="sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="1.5" dy="2" stdDeviation="1.6" flood-color="#000" flood-opacity="0.18"/></filter>'+
+    '<marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M1,1 L9,5 L1,9" fill="none" stroke="#5a5a5a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></marker>';
+  svg.appendChild(defs);
+
+  // Seite + Raster
+  svg.appendChild(el('rect',{x:0,y:0,width:L.pageW,height:L.pageH,fill:'var(--page)'}));
+  const gridStep=24;
+  const grid=el('g',{});
+  for(let gx=L.headerW; gx<=L.pageW; gx+=gridStep) grid.appendChild(el('line',{x1:gx,y1:G.RULER,x2:gx,y2:L.pageH,stroke:'var(--grid)','stroke-width':1}));
+  for(let gy=G.RULER; gy<=L.pageH; gy+=gridStep) grid.appendChild(el('line',{x1:L.headerW,y1:gy,x2:L.pageW,y2:gy,stroke:'var(--grid)','stroke-width':1}));
+  svg.appendChild(grid);
+
+  // Swimlane-Bänder + Header
+  L.lanes.forEach((lane,li)=>{
+    const top=L.laneTop[li], h=L.laneHeight[li];
+    svg.appendChild(el('rect',{x:G.HEADER_W,y:top,width:L.pageW-G.HEADER_W,height:h,fill: li%2? 'var(--lane-band-b)':'var(--lane-band-a)',stroke:'#c9d3e2','stroke-width':1}));
+    svg.appendChild(el('rect',{x:0,y:top,width:G.HEADER_W,height:h,fill:'var(--lane-head)',stroke:'#c9d3e2','stroke-width':1}));
+    const tx=el('text',{x:34,y:top+h/2,'text-anchor':'middle','font-size':13,'font-weight':600,fill:'#2b4a73','font-family':'Segoe UI, sans-serif',transform:`rotate(-90 34 ${top+h/2})`});
+    tx.textContent = lane; svg.appendChild(tx);
+  });
+
+  // Ruler-Streifen (nur Optik)
+  svg.appendChild(el('rect',{x:0,y:0,width:L.pageW,height:G.RULER,fill:'#f0f0f0',stroke:'#d8d8d8','stroke-width':1}));
+  svg.appendChild(el('rect',{x:0,y:0,width:L.headerW,height:G.RULER,fill:'#e8e8e8',stroke:'#d8d8d8','stroke-width':1}));
+  for(let rx=L.headerW; rx<L.pageW; rx+=24) svg.appendChild(el('line',{x1:rx,y1:G.RULER-6,x2:rx,y2:G.RULER,stroke:'#bdbdbd','stroke-width':1}));
+
+  // Connector-Gruppe (zuerst, damit hinter Shapes)
+  const connG = el('g',{}); svg.appendChild(connG);
+  const nodeG = el('g',{}); svg.appendChild(nodeG);
+
+  // Shapes
+  const nodeEls=[];
+  L.nodes.forEach(n=>{
+    const g=el('g',{class:'gnode'}); shapeNode(g,n); nodeG.appendChild(g); nodeEls.push(g);
+  });
+  // Connectors — Auffächerung an Knoten mit mehreren Kanten
+  const outMap = {}, inMap = {};
+  L.edges.forEach(e=>{ (outMap[e.from]=outMap[e.from]||[]).push(e); (inMap[e.to]=inMap[e.to]||[]).push(e); });
+  const connEls=[];
+  L.edges.forEach(e=>{
+    const s=L.byId[e.from], t=L.byId[e.to];
+    const sOff = fanOffset(outMap[e.from].indexOf(e), outMap[e.from].length);
+    const eOff = fanOffset(inMap[e.to].indexOf(e), inMap[e.to].length);
+    const a=anchors(s,t,sOff,eOff);
+    const pts=routeEdge(s,t,a,L);
+    const g=el('g',{class:'gconn'});
+    g.appendChild(el('path',{d:polylinePath(pts),fill:'none',stroke:'#5a5a5a','stroke-width':1.5,'marker-end':'url(#arr)'}));
+    if(e.label){
+      const [lx,ly]=connectorLabelPos(pts);
+      const lbl=el('g',{class:'glabel'});
+      const padw = e.label.length*6.4 + 12;
+      lbl.appendChild(el('rect',{x:lx-padw/2,y:ly-9,width:padw,height:16,rx:3,fill:'#ffffff',stroke:'#e0e0e0','stroke-width':1,opacity:.96}));
+      const tt=el('text',{x:lx,y:ly+3,'text-anchor':'middle','font-size':11,fill:'#444','font-family':'Segoe UI, sans-serif'});
+      tt.textContent=e.label; lbl.appendChild(tt);
+      g.appendChild(lbl);
+    }
+    connG.appendChild(g); connEls.push(g);
+  });
+
+  // Animation / Aufbau
+  // showConn() zeigt sowohl den Verbinder als auch sein Label-<g> an - die CSS-Regel
+  // .glabel{opacity:0} greift auf das Label selbst, nicht nur auf den Eltern-<g>.gconn>,
+  // daher muss 'show' zusaetzlich auf das verschachtelte .glabel gesetzt werden, sonst
+  // bleibt die Kantenbeschriftung dauerhaft unsichtbar.
+  const showConn = g=>{ g.classList.add('show'); const lbl=g.querySelector('.glabel'); if(lbl) lbl.classList.add('show'); };
+  if(animate){
+    let i=0;
+    const stepN = ()=>{
+      if(i<nodeEls.length){
+        nodeEls[i].classList.add('show'); i++;
+        setStatus(`Baue Diagramm … ${Math.min(i,nodeEls.length)}/${nodeEls.length} Shapes`);
+        setTimeout(stepN, 90);
+      }else{
+        connEls.forEach((g,j)=> setTimeout(()=>showConn(g), j*45));
+        setTimeout(()=>setStatus('Fertig — '+nodeEls.length+' Shapes, '+connEls.length+' Verbinder'), connEls.length*45+120);
+      }
+    };
+    stepN();
+  }else{
+    nodeEls.forEach(g=>g.classList.add('show'));
+    connEls.forEach(showConn);
+    setStatus('Fertig — '+nodeEls.length+' Shapes, '+connEls.length+' Verbinder');
+  }
+}
+
+/* ====================== Zoom ====================== */
+function applyZoom(L){
+  L = L || currentLayout; if(!L) return;
+  svg.setAttribute('width', Math.round(L.pageW*zoom));
+  svg.setAttribute('height', Math.round(L.pageH*zoom));
+  $('zVal').textContent = Math.round(zoom*100)+'%';
+}
+function fitZoom(){
+  if(!currentLayout) return;
+  const wrap=$('canvasWrap');
+  const availW = wrap.clientWidth - 60, availH = wrap.clientHeight - 60;
+  zoom = Math.min(availW/currentLayout.pageW, availH/currentLayout.pageH, 1.6);
+  zoom = Math.max(zoom, 0.2);
+  applyZoom();
+}
+
+/* ====================== Hauptablauf ====================== */
+async function handleSend(){
+  const text = input.value.trim();
+  if(!text || busy) return;
+  input.value='';
+  addMsg(text,'user');
+  setBusy(true); setStatus('Frage Mistral…');
+  const typing = showTyping();
+  try{
+    const content = await callMistral(text);
+    let model = parseModel(content);
+    // Diagrammtyp deterministisch aus der Nutzerauswahl setzen (nicht vom LLM abhängig machen).
+    model.diagramType = settings.diagramType;
+    let errs = validate(model);
+    if(errs.length){
+      // einmalige Korrekturschleife
+      setStatus('Korrigiere Modell…');
+      const fix = await callMistral('Das Modell war fehlerhaft ('+errs.join(' ')+'). Gib das vollständige, korrigierte JSON-Modell zurück.');
+      model = parseModel(fix); model.diagramType = settings.diagramType; errs = validate(model);
+    }
+    typing.remove();
+    if(errs.length){ addMsg('Konnte kein gültiges Diagramm erzeugen: '+errs.join(' '),'err'); setStatus('Fehler'); setBusy(false); return; }
+    currentModel = model;
+    currentLayout = layout(model);
+    renderLayout(currentLayout, true);
+    persist();
+    $('btnSvg').disabled=$('btnVsdx').disabled=$('btnJson').disabled=false;
+    if(model.diagramType==='flow'){
+      addMsg(`„${model.title}" als Flussdiagramm erstellt: ${model.nodes.length} Schritte (ISO 5807 / DIN 66001, ohne Swimlanes). Du kannst Änderungen anweisen, z. B. „Füge nach der Prüfung einen Genehmigungsschritt hinzu".`,'bot');
+    }else{
+      const laneTxt = (model.lanes||[]).join(', ');
+      addMsg(`„${model.title}" erstellt: ${model.nodes.length} Schritte in ${(model.lanes||[]).length} Swimlanes (${laneTxt}). Du kannst Änderungen anweisen, z. B. „Füge eine Genehmigung hinzu".`,'bot');
+    }
+  }catch(err){
+    typing.remove();
+    addMsg(err.message || String(err),'err');
+    setStatus('Fehler');
+  }finally{
+    setBusy(false);
+  }
+}
+
+/* ====================== Export: SVG ====================== */
+function serializedSVG(){
+  // Inline-CSS-Variablen auflösen für portables SVG
+  const clone = svg.cloneNode(true);
+  const map = {
+    '--page':'#ffffff','--grid':'#eef1f5','--lane-head':'#eef2f8','--lane-band-a':'#ffffff','--lane-band-b':'#fbfcfe',
+    '--proc-f':'#dae8fc','--proc-s':'#6c8ebf','--dec-f':'#fff2cc','--dec-s':'#d6b656',
+    '--term-f':'#d5e8d4','--term-s':'#82b366','--io-f':'#e1d5e7','--io-s':'#9673a6'
+  };
+  let str = new XMLSerializer().serializeToString(clone);
+  Object.keys(map).forEach(k=>{ str = str.split('var('+k+')').join(map[k]); });
+  str = str.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ');
+  return '<?xml version="1.0" encoding="UTF-8"?>\n'+str;
+}
+function download(filename, data, mime){
+  const blob = (data instanceof Uint8Array) ? new Blob([data],{type:mime}) : new Blob([data],{type:mime});
+  const url = URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download=filename; document.body.appendChild(a); a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 200);
+}
+function exportSVG(){ if(!currentLayout) return; download((currentModel.title||'prozess')+'.svg', serializedSVG(), 'image/svg+xml'); }
+function exportJSON(){ if(!currentModel) return; download((currentModel.title||'prozess')+'.json', JSON.stringify(currentModel,null,2), 'application/json'); }
+
+/* ====================== Mini-ZIP-Writer (STORE) ====================== */
+function crc32(bytes){
+  if(!crc32.t){ const t=new Uint32Array(256); for(let n=0;n<256;n++){ let c=n; for(let k=0;k<8;k++) c = (c&1)?(0xEDB88320^(c>>>1)):(c>>>1); t[n]=c>>>0; } crc32.t=t; }
+  const t=crc32.t; let crc=0xFFFFFFFF;
+  for(let i=0;i<bytes.length;i++) crc = t[(crc^bytes[i])&0xFF] ^ (crc>>>8);
+  return (crc^0xFFFFFFFF)>>>0;
+}
+function enc(s){ return new TextEncoder().encode(s); }
+function buildZip(entries){
+  const u16=v=>[v&255,(v>>8)&255];
+  const u32=v=>[v&255,(v>>>8)&255,(v>>>16)&255,(v>>>24)&255];
+  const parts=[]; const central=[]; let offset=0;
+  for(const e of entries){
+    const name=enc(e.name); const data=e.data; const crc=crc32(data); const len=data.length;
+    const local=new Uint8Array([].concat(u32(0x04034b50),u16(20),u16(0),u16(0),u16(0),u16(0),u32(crc),u32(len),u32(len),u16(name.length),u16(0)));
+    parts.push(local,name,data);
+    const cen=new Uint8Array([].concat(u32(0x02014b50),u16(20),u16(20),u16(0),u16(0),u16(0),u16(0),u32(crc),u32(len),u32(len),u16(name.length),u16(0),u16(0),u16(0),u16(0),u32(0),u32(offset)));
+    central.push(cen,name);
+    offset += local.length+name.length+data.length;
+  }
+  let cenSize=0; central.forEach(p=>cenSize+=p.length);
+  const eocd=new Uint8Array([].concat(u32(0x06054b50),u16(0),u16(0),u16(entries.length),u16(entries.length),u32(cenSize),u32(offset),u16(0)));
+  const all=parts.concat(central,[eocd]);
+  let total=0; all.forEach(p=>total+=p.length);
+  const out=new Uint8Array(total); let pos=0; all.forEach(p=>{ out.set(p,pos); pos+=p.length; });
+  return out;
+}
+
+/* ====================== Export: VSDX (Boilerplate 1:1 aus einer echten Visio-Datei) ====================== */
+function xmlEsc(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c])); }
+function hexFor(type){
+  if(type==='decision') return ['#FFF2CC','#D6B656'];
+  if(type==='start'||type==='end') return ['#D5E8D4','#82B366'];
+  if(type==='io') return ['#E1D5E7','#9673A6'];
+  if(type==='connector') return ['#EDEDED','#8C8C8C'];
+  if(type==='document') return ['#DAE8FC','#6C8EBF'];
+  return ['#DAE8FC','#6C8EBF'];
+}
+
+// document.xml, theme1.xml und windows.xml enthalten Boilerplate, die Visio selbst in
+// jeder Datei mitschreibt (StyleSheets, Farbschema/Theme, Fensterzustand). Unsere Shapes
+// referenzieren LineStyle/FillStyle/TextStyle="0" - ohne eine dazu passende StyleSheet-
+// Definition (ID 0) hielt Visio die zuvor erzeugte Datei fuer beschaedigt. Diese Bloecke
+// sind 1:1 aus einer mit Visio gespeicherten .vsdx entnommen (nur Farb-/Groessenwerte sind
+// dynamisch), damit die exportierte Datei dieselbe Struktur hat wie ein Visio-Original.
+const VSDX_DOCUMENT_XML = `<?xml version='1.0' encoding='utf-8' ?>
+<VisioDocument xmlns='http://schemas.microsoft.com/office/visio/2012/main' xmlns:r='http://schemas.openxmlformats.org/officeDocument/2006/relationships' xml:space='preserve'><DocumentSettings TopPage='0' DefaultTextStyle='3' DefaultLineStyle='3' DefaultFillStyle='3' DefaultGuideStyle='4'><GlueSettings>9</GlueSettings><SnapSettings>65847</SnapSettings><SnapExtensions>34</SnapExtensions><SnapAngles/><DynamicGridEnabled>1</DynamicGridEnabled><ProtectStyles>0</ProtectStyles><ProtectShapes>0</ProtectShapes><ProtectMasters>0</ProtectMasters><ProtectBkgnds>0</ProtectBkgnds></DocumentSettings><Colors><ColorEntry IX='24' RGB='#7F7F7F'/></Colors><FaceNames><FaceName NameU='Calibri' UnicodeRanges='-469750017 -1040178053 9 0' CharSets='536871423 0' Panose='2 15 5 2 2 2 4 3 2 4' Flags='357'/></FaceNames><StyleSheets><StyleSheet ID='0' NameU='No Style' IsCustomNameU='1' Name='Keine Format' IsCustomName='1'><Cell N='EnableLineProps' V='1'/><Cell N='EnableFillProps' V='1'/><Cell N='EnableTextProps' V='1'/><Cell N='HideForApply' V='0'/><Cell N='LineWeight' V='0.01041666666666667'/><Cell N='LineColor' V='0'/><Cell N='LinePattern' V='1'/><Cell N='Rounding' V='0'/><Cell N='EndArrowSize' V='2'/><Cell N='BeginArrow' V='0'/><Cell N='EndArrow' V='0'/><Cell N='LineCap' V='0'/><Cell N='BeginArrowSize' V='2'/><Cell N='LineColorTrans' V='0'/><Cell N='CompoundType' V='0'/><Cell N='FillForegnd' V='1'/><Cell N='FillBkgnd' V='0'/><Cell N='FillPattern' V='1'/><Cell N='ShdwForegnd' V='0'/><Cell N='ShdwPattern' V='0'/><Cell N='FillForegndTrans' V='0'/><Cell N='FillBkgndTrans' V='0'/><Cell N='ShdwForegndTrans' V='0'/><Cell N='ShapeShdwType' V='0'/><Cell N='ShapeShdwOffsetX' V='0'/><Cell N='ShapeShdwOffsetY' V='0'/><Cell N='ShapeShdwObliqueAngle' V='0'/><Cell N='ShapeShdwScaleFactor' V='1'/><Cell N='ShapeShdwBlur' V='0'/><Cell N='ShapeShdwShow' V='0'/><Cell N='LeftMargin' V='0'/><Cell N='RightMargin' V='0'/><Cell N='TopMargin' V='0'/><Cell N='BottomMargin' V='0'/><Cell N='VerticalAlign' V='1'/><Cell N='TextBkgnd' V='0'/><Cell N='DefaultTabStop' V='0.5905511811023622'/><Cell N='TextDirection' V='0'/><Cell N='TextBkgndTrans' V='0'/><Cell N='LockWidth' V='0'/><Cell N='LockHeight' V='0'/><Cell N='LockMoveX' V='0'/><Cell N='LockMoveY' V='0'/><Cell N='LockAspect' V='0'/><Cell N='LockDelete' V='0'/><Cell N='LockBegin' V='0'/><Cell N='LockEnd' V='0'/><Cell N='LockRotate' V='0'/><Cell N='LockCrop' V='0'/><Cell N='LockVtxEdit' V='0'/><Cell N='LockTextEdit' V='0'/><Cell N='LockFormat' V='0'/><Cell N='LockGroup' V='0'/><Cell N='LockCalcWH' V='0'/><Cell N='LockSelect' V='0'/><Cell N='LockCustProp' V='0'/><Cell N='LockFromGroupFormat' V='0'/><Cell N='LockThemeColors' V='0'/><Cell N='LockThemeEffects' V='0'/><Cell N='LockThemeConnectors' V='0'/><Cell N='LockThemeFonts' V='0'/><Cell N='LockThemeIndex' V='0'/><Cell N='LockReplace' V='0'/><Cell N='LockVariation' V='0'/><Cell N='NoObjHandles' V='0'/><Cell N='NonPrinting' V='0'/><Cell N='NoCtlHandles' V='0'/><Cell N='NoAlignBox' V='0'/><Cell N='UpdateAlignBox' V='0'/><Cell N='HideText' V='0'/><Cell N='DynFeedback' V='0'/><Cell N='GlueType' V='0'/><Cell N='WalkPreference' V='0'/><Cell N='BegTrigger' V='0' F='No Formula'/><Cell N='EndTrigger' V='0' F='No Formula'/><Cell N='ObjType' V='0'/><Cell N='Comment' V=''/><Cell N='IsDropSource' V='0'/><Cell N='NoLiveDynamics' V='0'/><Cell N='LocalizeMerge' V='0'/><Cell N='NoProofing' V='0'/><Cell N='Calendar' V='0'/><Cell N='LangID' V='de-DE'/><Cell N='ShapeKeywords' V=''/><Cell N='DropOnPageScale' V='1'/><Cell N='TheData' V='0' F='No Formula'/><Cell N='TheText' V='0' F='No Formula'/><Cell N='EventDblClick' V='0' F='No Formula'/><Cell N='EventXFMod' V='0' F='No Formula'/><Cell N='EventDrop' V='0' F='No Formula'/><Cell N='EventMultiDrop' V='0' F='No Formula'/><Cell N='HelpTopic' V=''/><Cell N='Copyright' V=''/><Cell N='LayerMember' V=''/><Cell N='XRulerDensity' V='32'/><Cell N='YRulerDensity' V='32'/><Cell N='XRulerOrigin' V='0'/><Cell N='YRulerOrigin' V='0'/><Cell N='XGridDensity' V='8'/><Cell N='YGridDensity' V='8'/><Cell N='XGridSpacing' V='0'/><Cell N='YGridSpacing' V='0'/><Cell N='XGridOrigin' V='0'/><Cell N='YGridOrigin' V='0'/><Cell N='Gamma' V='1'/><Cell N='Contrast' V='0.5'/><Cell N='Brightness' V='0.5'/><Cell N='Sharpen' V='0'/><Cell N='Blur' V='0'/><Cell N='Denoise' V='0'/><Cell N='Transparency' V='0'/><Cell N='SelectMode' V='1'/><Cell N='DisplayMode' V='2'/><Cell N='IsDropTarget' V='0'/><Cell N='IsSnapTarget' V='1'/><Cell N='IsTextEditTarget' V='1'/><Cell N='DontMoveChildren' V='0'/><Cell N='ShapePermeableX' V='0'/><Cell N='ShapePermeableY' V='0'/><Cell N='ShapePermeablePlace' V='0'/><Cell N='Relationships' V='0'/><Cell N='ShapeFixedCode' V='0'/><Cell N='ShapePlowCode' V='0'/><Cell N='ShapeRouteStyle' V='0'/><Cell N='ShapePlaceStyle' V='0'/><Cell N='ConFixedCode' V='0'/><Cell N='ConLineJumpCode' V='0'/><Cell N='ConLineJumpStyle' V='0'/><Cell N='ConLineJumpDirX' V='0'/><Cell N='ConLineJumpDirY' V='0'/><Cell N='ShapePlaceFlip' V='0'/><Cell N='ConLineRouteExt' V='0'/><Cell N='ShapeSplit' V='0'/><Cell N='ShapeSplittable' V='0'/><Cell N='DisplayLevel' V='0'/><Cell N='ResizePage' V='0'/><Cell N='EnableGrid' V='0'/><Cell N='DynamicsOff' V='0'/><Cell N='CtrlAsInput' V='0'/><Cell N='AvoidPageBreaks' V='0'/><Cell N='PlaceStyle' V='0'/><Cell N='RouteStyle' V='0'/><Cell N='PlaceDepth' V='0'/><Cell N='PlowCode' V='0'/><Cell N='LineJumpCode' V='1'/><Cell N='LineJumpStyle' V='0'/><Cell N='PageLineJumpDirX' V='0'/><Cell N='PageLineJumpDirY' V='0'/><Cell N='LineToNodeX' V='0.09842519685039369'/><Cell N='LineToNodeY' V='0.09842519685039369'/><Cell N='BlockSizeX' V='0.1968503937007874'/><Cell N='BlockSizeY' V='0.1968503937007874'/><Cell N='AvenueSizeX' V='0.2952755905511811'/><Cell N='AvenueSizeY' V='0.2952755905511811'/><Cell N='LineToLineX' V='0.09842519685039369'/><Cell N='LineToLineY' V='0.09842519685039369'/><Cell N='LineJumpFactorX' V='0.66666666666667'/><Cell N='LineJumpFactorY' V='0.66666666666667'/><Cell N='LineAdjustFrom' V='0'/><Cell N='LineAdjustTo' V='0'/><Cell N='PlaceFlip' V='0'/><Cell N='LineRouteExt' V='0'/><Cell N='PageShapeSplit' V='0'/><Cell N='PageLeftMargin' V='0.25'/><Cell N='PageRightMargin' V='0.25'/><Cell N='PageTopMargin' V='0.25'/><Cell N='PageBottomMargin' V='0.25'/><Cell N='ScaleX' V='1'/><Cell N='ScaleY' V='1'/><Cell N='PagesX' V='1'/><Cell N='PagesY' V='1'/><Cell N='CenterX' V='0'/><Cell N='CenterY' V='0'/><Cell N='OnPage' V='0'/><Cell N='PrintGrid' V='0'/><Cell N='PrintPageOrientation' V='1'/><Cell N='PaperKind' V='9'/><Cell N='PaperSource' V='7'/><Cell N='QuickStyleLineColor' V='100'/><Cell N='QuickStyleFillColor' V='100'/><Cell N='QuickStyleShadowColor' V='100'/><Cell N='QuickStyleFontColor' V='100'/><Cell N='QuickStyleLineMatrix' V='100'/><Cell N='QuickStyleFillMatrix' V='100'/><Cell N='QuickStyleEffectsMatrix' V='100'/><Cell N='QuickStyleFontMatrix' V='100'/><Cell N='QuickStyleType' V='0'/><Cell N='QuickStyleVariation' V='0'/><Cell N='LineGradientDir' V='0'/><Cell N='LineGradientAngle' V='1.5707963267949'/><Cell N='FillGradientDir' V='0'/><Cell N='FillGradientAngle' V='1.5707963267949'/><Cell N='LineGradientEnabled' V='0'/><Cell N='FillGradientEnabled' V='0'/><Cell N='RotateGradientWithShape' V='1'/><Cell N='UseGroupGradient' V='0'/><Cell N='BevelTopType' V='0'/><Cell N='BevelTopWidth' V='0'/><Cell N='BevelTopHeight' V='0'/><Cell N='BevelBottomType' V='0'/><Cell N='BevelBottomWidth' V='0'/><Cell N='BevelBottomHeight' V='0'/><Cell N='BevelDepthColor' V='1'/><Cell N='BevelDepthSize' V='0'/><Cell N='BevelContourColor' V='0'/><Cell N='BevelContourSize' V='0'/><Cell N='BevelMaterialType' V='0'/><Cell N='BevelLightingType' V='0'/><Cell N='BevelLightingAngle' V='0'/><Cell N='RotationXAngle' V='0'/><Cell N='RotationYAngle' V='0'/><Cell N='RotationZAngle' V='0'/><Cell N='RotationType' V='0'/><Cell N='Perspective' V='0'/><Cell N='DistanceFromGround' V='0'/><Cell N='KeepTextFlat' V='0'/><Cell N='ReflectionTrans' V='0'/><Cell N='ReflectionSize' V='0'/><Cell N='ReflectionDist' V='0'/><Cell N='ReflectionBlur' V='0'/><Cell N='GlowColor' V='1'/><Cell N='GlowColorTrans' V='0'/><Cell N='GlowSize' V='0'/><Cell N='SoftEdgesSize' V='0'/><Cell N='SketchSeed' V='0'/><Cell N='SketchEnabled' V='0'/><Cell N='SketchAmount' V='5'/><Cell N='SketchLineWeight' V='0.04166666666666666' U='PT'/><Cell N='SketchLineChange' V='0.14'/><Cell N='SketchFillChange' V='0.1'/><Cell N='ColorSchemeIndex' V='0'/><Cell N='EffectSchemeIndex' V='0'/><Cell N='ConnectorSchemeIndex' V='0'/><Cell N='FontSchemeIndex' V='0'/><Cell N='ThemeIndex' V='0'/><Cell N='VariationColorIndex' V='0'/><Cell N='VariationStyleIndex' V='0'/><Cell N='EmbellishmentIndex' V='0'/><Cell N='ReplaceLockShapeData' V='0'/><Cell N='ReplaceLockText' V='0'/><Cell N='ReplaceLockFormat' V='0'/><Cell N='ReplaceCopyCells' V='0' U='BOOL' F='No Formula'/><Cell N='PageWidth' V='0' F='No Formula'/><Cell N='PageHeight' V='0' F='No Formula'/><Cell N='ShdwOffsetX' V='0' F='No Formula'/><Cell N='ShdwOffsetY' V='0' F='No Formula'/><Cell N='PageScale' V='0' U='MM' F='No Formula'/><Cell N='DrawingScale' V='0' U='MM' F='No Formula'/><Cell N='DrawingSizeType' V='0' F='No Formula'/><Cell N='DrawingScaleType' V='0' F='No Formula'/><Cell N='InhibitSnap' V='0' F='No Formula'/><Cell N='PageLockReplace' V='0' U='BOOL' F='No Formula'/><Cell N='PageLockDuplicate' V='0' U='BOOL' F='No Formula'/><Cell N='UIVisibility' V='0' F='No Formula'/><Cell N='ShdwType' V='0' F='No Formula'/><Cell N='ShdwObliqueAngle' V='0' F='No Formula'/><Cell N='ShdwScaleFactor' V='0' F='No Formula'/><Cell N='DrawingResizeType' V='0' F='No Formula'/><Section N='Character'><Row IX='0'><Cell N='Font' V='Calibri'/><Cell N='Color' V='0'/><Cell N='Style' V='0'/><Cell N='Case' V='0'/><Cell N='Pos' V='0'/><Cell N='FontScale' V='1'/><Cell N='Size' V='0.1666666666666667'/><Cell N='DblUnderline' V='0'/><Cell N='Overline' V='0'/><Cell N='Strikethru' V='0'/><Cell N='DoubleStrikethrough' V='0'/><Cell N='Letterspace' V='0'/><Cell N='ColorTrans' V='0'/><Cell N='AsianFont' V='0'/><Cell N='ComplexScriptFont' V='0'/><Cell N='ComplexScriptSize' V='-1'/><Cell N='LangID' V='de-DE'/></Row></Section><Section N='Paragraph'><Row IX='0'><Cell N='IndFirst' V='0'/><Cell N='IndLeft' V='0'/><Cell N='IndRight' V='0'/><Cell N='SpLine' V='-1.2'/><Cell N='SpBefore' V='0'/><Cell N='SpAfter' V='0'/><Cell N='HorzAlign' V='1'/><Cell N='Bullet' V='0'/><Cell N='BulletStr' V=''/><Cell N='BulletFont' V='0'/><Cell N='BulletFontSize' V='-1'/><Cell N='TextPosAfterBullet' V='0'/><Cell N='Flags' V='0'/></Row></Section><Section N='Tabs'><Row IX='0'/></Section><Section N='LineGradient'><Row IX='0'><Cell N='GradientStopColor' V='1'/><Cell N='GradientStopColorTrans' V='0'/><Cell N='GradientStopPosition' V='0'/></Row></Section><Section N='FillGradient'><Row IX='0'><Cell N='GradientStopColor' V='1'/><Cell N='GradientStopColorTrans' V='0'/><Cell N='GradientStopPosition' V='0'/></Row></Section></StyleSheet><StyleSheet ID='1' NameU='Text Only' IsCustomNameU='1' Name='Nur Text' IsCustomName='1' LineStyle='3' FillStyle='3' TextStyle='3'><Cell N='EnableLineProps' V='1'/><Cell N='EnableFillProps' V='1'/><Cell N='EnableTextProps' V='1'/><Cell N='HideForApply' V='0'/><Cell N='LineWeight' V='Themed' F='Inh'/><Cell N='LineColor' V='Themed' F='Inh'/><Cell N='LinePattern' V='Themed' F='Inh'/><Cell N='Rounding' V='Themed' F='Inh'/><Cell N='EndArrowSize' V='2' F='Inh'/><Cell N='BeginArrow' V='0' F='Inh'/><Cell N='EndArrow' V='0' F='Inh'/><Cell N='LineCap' V='Themed' F='Inh'/><Cell N='BeginArrowSize' V='2' F='Inh'/><Cell N='LineColorTrans' V='Themed' F='Inh'/><Cell N='CompoundType' V='Themed' F='Inh'/><Cell N='FillForegnd' V='Themed' F='Inh'/><Cell N='FillBkgnd' V='Themed' F='Inh'/><Cell N='FillPattern' V='Themed' F='Inh'/><Cell N='ShdwForegnd' V='Themed' F='Inh'/><Cell N='ShdwPattern' V='Themed' F='Inh'/><Cell N='FillForegndTrans' V='Themed' F='Inh'/><Cell N='FillBkgndTrans' V='Themed' F='Inh'/><Cell N='ShdwForegndTrans' V='Themed' F='Inh'/><Cell N='ShapeShdwType' V='Themed' F='Inh'/><Cell N='ShapeShdwOffsetX' V='Themed' F='Inh'/><Cell N='ShapeShdwOffsetY' V='Themed' F='Inh'/><Cell N='ShapeShdwObliqueAngle' V='Themed' F='Inh'/><Cell N='ShapeShdwScaleFactor' V='Themed' F='Inh'/><Cell N='ShapeShdwBlur' V='Themed' F='Inh'/><Cell N='ShapeShdwShow' V='0' F='Inh'/><Cell N='LeftMargin' V='0'/><Cell N='RightMargin' V='0'/><Cell N='TopMargin' V='0'/><Cell N='BottomMargin' V='0'/><Cell N='VerticalAlign' V='0'/><Cell N='TextBkgnd' V='0'/><Cell N='DefaultTabStop' V='0.5905511811023622' F='Inh'/><Cell N='TextDirection' V='0' F='Inh'/><Cell N='TextBkgndTrans' V='0' F='Inh'/><Cell N='LineGradientDir' V='Themed' F='Inh'/><Cell N='LineGradientAngle' V='Themed' F='Inh'/><Cell N='FillGradientDir' V='Themed' F='Inh'/><Cell N='FillGradientAngle' V='Themed' F='Inh'/><Cell N='LineGradientEnabled' V='Themed' F='Inh'/><Cell N='FillGradientEnabled' V='Themed' F='Inh'/><Cell N='RotateGradientWithShape' V='Themed' F='Inh'/><Cell N='UseGroupGradient' V='Themed' F='Inh'/><Section N='Paragraph'><Row IX='0'><Cell N='IndFirst' V='0' F='Inh'/><Cell N='IndLeft' V='0' F='Inh'/><Cell N='IndRight' V='0' F='Inh'/><Cell N='SpLine' V='-1.2' F='Inh'/><Cell N='SpBefore' V='0' F='Inh'/><Cell N='SpAfter' V='0' F='Inh'/><Cell N='HorzAlign' V='0'/><Cell N='Bullet' V='0' F='Inh'/><Cell N='BulletStr' V='' F='Inh'/><Cell N='BulletFont' V='0' F='Inh'/><Cell N='BulletFontSize' V='-1' F='Inh'/><Cell N='TextPosAfterBullet' V='0' F='Inh'/><Cell N='Flags' V='0' F='Inh'/></Row></Section></StyleSheet><StyleSheet ID='2' NameU='None' IsCustomNameU='1' Name='Ohne' IsCustomName='1' LineStyle='3' FillStyle='3' TextStyle='3'><Cell N='EnableLineProps' V='1'/><Cell N='EnableFillProps' V='1'/><Cell N='EnableTextProps' V='1'/><Cell N='HideForApply' V='0'/><Cell N='LineWeight' V='Themed' F='Inh'/><Cell N='LineColor' V='Themed' F='Inh'/><Cell N='LinePattern' V='0'/><Cell N='Rounding' V='Themed' F='Inh'/><Cell N='EndArrowSize' V='2' F='Inh'/><Cell N='BeginArrow' V='0' F='Inh'/><Cell N='EndArrow' V='0' F='Inh'/><Cell N='LineCap' V='Themed' F='Inh'/><Cell N='BeginArrowSize' V='2' F='Inh'/><Cell N='LineColorTrans' V='Themed' F='Inh'/><Cell N='CompoundType' V='Themed' F='Inh'/><Cell N='FillForegnd' V='Themed' F='Inh'/><Cell N='FillBkgnd' V='Themed' F='Inh'/><Cell N='FillPattern' V='0'/><Cell N='ShdwForegnd' V='Themed' F='Inh'/><Cell N='ShdwPattern' V='Themed' F='Inh'/><Cell N='FillForegndTrans' V='Themed' F='Inh'/><Cell N='FillBkgndTrans' V='Themed' F='Inh'/><Cell N='ShdwForegndTrans' V='Themed' F='Inh'/><Cell N='ShapeShdwType' V='Themed' F='Inh'/><Cell N='ShapeShdwOffsetX' V='Themed' F='Inh'/><Cell N='ShapeShdwOffsetY' V='Themed' F='Inh'/><Cell N='ShapeShdwObliqueAngle' V='Themed' F='Inh'/><Cell N='ShapeShdwScaleFactor' V='Themed' F='Inh'/><Cell N='ShapeShdwBlur' V='Themed' F='Inh'/><Cell N='ShapeShdwShow' V='0' F='Inh'/><Cell N='LineGradientDir' V='Themed' F='Inh'/><Cell N='LineGradientAngle' V='Themed' F='Inh'/><Cell N='FillGradientDir' V='Themed' F='Inh'/><Cell N='FillGradientAngle' V='Themed' F='Inh'/><Cell N='LineGradientEnabled' V='0'/><Cell N='FillGradientEnabled' V='0'/><Cell N='RotateGradientWithShape' V='Themed' F='Inh'/><Cell N='UseGroupGradient' V='Themed' F='Inh'/><Cell N='QuickStyleLineColor' V='100' F='Inh'/><Cell N='QuickStyleFillColor' V='100' F='Inh'/><Cell N='QuickStyleShadowColor' V='100' F='Inh'/><Cell N='QuickStyleFontColor' V='100' F='Inh'/><Cell N='QuickStyleLineMatrix' V='100' F='Inh'/><Cell N='QuickStyleFillMatrix' V='100' F='Inh'/><Cell N='QuickStyleEffectsMatrix' V='0' F='GUARD(0)'/><Cell N='QuickStyleFontMatrix' V='100' F='Inh'/><Cell N='QuickStyleType' V='0' F='Inh'/><Cell N='QuickStyleVariation' V='2'/></StyleSheet><StyleSheet ID='3' NameU='Normal' IsCustomNameU='1' Name='Standard' IsCustomName='1' LineStyle='6' FillStyle='6' TextStyle='6'><Cell N='EnableLineProps' V='1'/><Cell N='EnableFillProps' V='1'/><Cell N='EnableTextProps' V='1'/><Cell N='HideForApply' V='0'/><Cell N='LeftMargin' V='0.05555555555555555' U='PT'/><Cell N='RightMargin' V='0.05555555555555555' U='PT'/><Cell N='TopMargin' V='0.05555555555555555' U='PT'/><Cell N='BottomMargin' V='0.05555555555555555' U='PT'/><Cell N='VerticalAlign' V='1' F='Inh'/><Cell N='TextBkgnd' V='0' F='Inh'/><Cell N='DefaultTabStop' V='0.5905511811023622' F='Inh'/><Cell N='TextDirection' V='0' F='Inh'/><Cell N='TextBkgndTrans' V='0' F='Inh'/></StyleSheet><StyleSheet ID='4' NameU='Guide' IsCustomNameU='1' Name='Guide' IsCustomName='1' LineStyle='3' FillStyle='3' TextStyle='3'><Cell N='EnableLineProps' V='1'/><Cell N='EnableFillProps' V='1'/><Cell N='EnableTextProps' V='1'/><Cell N='HideForApply' V='0'/><Cell N='LineWeight' V='0' U='PT'/><Cell N='LineColor' V='#7f7f7f'/><Cell N='LinePattern' V='23'/><Cell N='Rounding' V='Themed' F='Inh'/><Cell N='EndArrowSize' V='2' F='Inh'/><Cell N='BeginArrow' V='0' F='Inh'/><Cell N='EndArrow' V='0' F='Inh'/><Cell N='LineCap' V='Themed' F='Inh'/><Cell N='BeginArrowSize' V='2' F='Inh'/><Cell N='LineColorTrans' V='Themed' F='Inh'/><Cell N='CompoundType' V='Themed' F='Inh'/><Cell N='FillForegnd' V='Themed' F='Inh'/><Cell N='FillBkgnd' V='Themed' F='Inh'/><Cell N='FillPattern' V='0'/><Cell N='ShdwForegnd' V='Themed' F='Inh'/><Cell N='ShdwPattern' V='Themed' F='Inh'/><Cell N='FillForegndTrans' V='Themed' F='Inh'/><Cell N='FillBkgndTrans' V='Themed' F='Inh'/><Cell N='ShdwForegndTrans' V='Themed' F='Inh'/><Cell N='ShapeShdwType' V='Themed' F='Inh'/><Cell N='ShapeShdwOffsetX' V='Themed' F='Inh'/><Cell N='ShapeShdwOffsetY' V='Themed' F='Inh'/><Cell N='ShapeShdwObliqueAngle' V='Themed' F='Inh'/><Cell N='ShapeShdwScaleFactor' V='Themed' F='Inh'/><Cell N='ShapeShdwBlur' V='Themed' F='Inh'/><Cell N='ShapeShdwShow' V='0' F='Inh'/><Cell N='LineGradientDir' V='Themed' F='Inh'/><Cell N='LineGradientAngle' V='Themed' F='Inh'/><Cell N='FillGradientDir' V='Themed' F='Inh'/><Cell N='FillGradientAngle' V='Themed' F='Inh'/><Cell N='LineGradientEnabled' V='0'/><Cell N='FillGradientEnabled' V='0'/><Cell N='RotateGradientWithShape' V='Themed' F='Inh'/><Cell N='UseGroupGradient' V='Themed' F='Inh'/><Cell N='LeftMargin' V='0.05555555555555555' U='PT' F='Inh'/><Cell N='RightMargin' V='0.05555555555555555' U='PT' F='Inh'/><Cell N='TopMargin' V='0'/><Cell N='BottomMargin' V='0'/><Cell N='VerticalAlign' V='2'/><Cell N='TextBkgnd' V='0' F='Inh'/><Cell N='DefaultTabStop' V='0.5905511811023622' F='Inh'/><Cell N='TextDirection' V='0' F='Inh'/><Cell N='TextBkgndTrans' V='0' F='Inh'/><Cell N='NoObjHandles' V='0' F='Inh'/><Cell N='NonPrinting' V='1'/><Cell N='NoCtlHandles' V='0' F='Inh'/><Cell N='NoAlignBox' V='0' F='Inh'/><Cell N='UpdateAlignBox' V='0' F='Inh'/><Cell N='HideText' V='0' F='Inh'/><Cell N='DynFeedback' V='0' F='Inh'/><Cell N='GlueType' V='0' F='Inh'/><Cell N='WalkPreference' V='0' F='Inh'/><Cell N='BegTrigger' V='0' F='No Formula'/><Cell N='EndTrigger' V='0' F='No Formula'/><Cell N='ObjType' V='0' F='Inh'/><Cell N='Comment' V='' F='Inh'/><Cell N='IsDropSource' V='0' F='Inh'/><Cell N='NoLiveDynamics' V='0' F='Inh'/><Cell N='LocalizeMerge' V='0' F='Inh'/><Cell N='NoProofing' V='0' F='Inh'/><Cell N='Calendar' V='0' F='Inh'/><Cell N='LangID' V='de-DE' F='Inh'/><Cell N='ShapeKeywords' V='' F='Inh'/><Cell N='DropOnPageScale' V='1' F='Inh'/><Cell N='ShapePermeableX' V='1'/><Cell N='ShapePermeableY' V='1'/><Cell N='ShapePermeablePlace' V='1'/><Cell N='Relationships' V='0' F='Inh'/><Cell N='ShapeFixedCode' V='0' F='Inh'/><Cell N='ShapePlowCode' V='0' F='Inh'/><Cell N='ShapeRouteStyle' V='0' F='Inh'/><Cell N='ShapePlaceStyle' V='0' F='Inh'/><Cell N='ConFixedCode' V='0' F='Inh'/><Cell N='ConLineJumpCode' V='0' F='Inh'/><Cell N='ConLineJumpStyle' V='0' F='Inh'/><Cell N='ConLineJumpDirX' V='0' F='Inh'/><Cell N='ConLineJumpDirY' V='0' F='Inh'/><Cell N='ShapePlaceFlip' V='0' F='Inh'/><Cell N='ConLineRouteExt' V='0' F='Inh'/><Cell N='ShapeSplit' V='0' F='Inh'/><Cell N='ShapeSplittable' V='0' F='Inh'/><Cell N='DisplayLevel' V='0' F='Inh'/><Section N='Character'><Row IX='0'><Cell N='Font' V='Themed' F='Inh'/><Cell N='Color' V='4'/><Cell N='Style' V='Themed' F='Inh'/><Cell N='Case' V='0' F='Inh'/><Cell N='Pos' V='0' F='Inh'/><Cell N='FontScale' V='1' F='Inh'/><Cell N='Size' V='0.125'/><Cell N='DblUnderline' V='0' F='Inh'/><Cell N='Overline' V='0' F='Inh'/><Cell N='Strikethru' V='0' F='Inh'/><Cell N='DoubleStrikethrough' V='0' F='Inh'/><Cell N='Letterspace' V='0' F='Inh'/><Cell N='ColorTrans' V='0' F='Inh'/><Cell N='AsianFont' V='Themed' F='Inh'/><Cell N='ComplexScriptFont' V='Themed' F='Inh'/><Cell N='ComplexScriptSize' V='-1' F='Inh'/><Cell N='LangID' V='de-DE' F='Inh'/></Row></Section></StyleSheet><StyleSheet ID='6' NameU='Theme' IsCustomNameU='1' Name='Theme' IsCustomName='1' LineStyle='0' FillStyle='0' TextStyle='0'><Cell N='EnableLineProps' V='1'/><Cell N='EnableFillProps' V='1'/><Cell N='EnableTextProps' V='1'/><Cell N='HideForApply' V='0'/><Cell N='LineWeight' V='Themed' F='THEMEVAL()'/><Cell N='LineColor' V='Themed' F='THEMEVAL()'/><Cell N='LinePattern' V='Themed' F='THEMEVAL()'/><Cell N='Rounding' V='Themed' F='THEMEVAL()'/><Cell N='EndArrowSize' V='2' F='Inh'/><Cell N='BeginArrow' V='0' F='Inh'/><Cell N='EndArrow' V='0' F='Inh'/><Cell N='LineCap' V='Themed' F='THEMEVAL()'/><Cell N='BeginArrowSize' V='2' F='Inh'/><Cell N='LineColorTrans' V='Themed' F='THEMEVAL()'/><Cell N='CompoundType' V='Themed' F='THEMEVAL()'/><Cell N='FillForegnd' V='Themed' F='THEMEVAL()'/><Cell N='FillBkgnd' V='Themed' F='THEMEVAL()'/><Cell N='FillPattern' V='Themed' F='THEMEVAL()'/><Cell N='ShdwForegnd' V='Themed' F='THEMEVAL()'/><Cell N='ShdwPattern' V='Themed' F='THEMEVAL()'/><Cell N='FillForegndTrans' V='Themed' F='THEMEVAL()'/><Cell N='FillBkgndTrans' V='Themed' F='THEMEVAL()'/><Cell N='ShdwForegndTrans' V='Themed' F='THEMEVAL()'/><Cell N='ShapeShdwType' V='Themed' F='THEMEVAL()'/><Cell N='ShapeShdwOffsetX' V='Themed' F='THEMEVAL()'/><Cell N='ShapeShdwOffsetY' V='Themed' F='THEMEVAL()'/><Cell N='ShapeShdwObliqueAngle' V='Themed' F='THEMEVAL()'/><Cell N='ShapeShdwScaleFactor' V='Themed' F='THEMEVAL()'/><Cell N='ShapeShdwBlur' V='Themed' F='THEMEVAL()'/><Cell N='ShapeShdwShow' V='0' F='Inh'/><Cell N='LineGradientDir' V='Themed' F='THEMEVAL()'/><Cell N='LineGradientAngle' V='Themed' F='THEMEVAL()'/><Cell N='FillGradientDir' V='Themed' F='THEMEVAL()'/><Cell N='FillGradientAngle' V='Themed' F='THEMEVAL()'/><Cell N='LineGradientEnabled' V='Themed' F='THEMEVAL()'/><Cell N='FillGradientEnabled' V='Themed' F='THEMEVAL()'/><Cell N='RotateGradientWithShape' V='Themed' F='THEMEVAL()'/><Cell N='UseGroupGradient' V='Themed' F='THEMEVAL()'/><Cell N='BevelTopType' V='Themed' F='THEMEVAL()'/><Cell N='BevelTopWidth' V='Themed' F='THEMEVAL()'/><Cell N='BevelTopHeight' V='Themed' F='THEMEVAL()'/><Cell N='BevelBottomType' V='0' F='Inh'/><Cell N='BevelBottomWidth' V='0' F='Inh'/><Cell N='BevelBottomHeight' V='0' F='Inh'/><Cell N='BevelDepthColor' V='1' F='Inh'/><Cell N='BevelDepthSize' V='0' F='Inh'/><Cell N='BevelContourColor' V='Themed' F='THEMEVAL()'/><Cell N='BevelContourSize' V='Themed' F='THEMEVAL()'/><Cell N='BevelMaterialType' V='Themed' F='THEMEVAL()'/><Cell N='BevelLightingType' V='Themed' F='THEMEVAL()'/><Cell N='BevelLightingAngle' V='Themed' F='THEMEVAL()'/><Cell N='ReflectionTrans' V='Themed' F='THEMEVAL()'/><Cell N='ReflectionSize' V='Themed' F='THEMEVAL()'/><Cell N='ReflectionDist' V='Themed' F='THEMEVAL()'/><Cell N='ReflectionBlur' V='Themed' F='THEMEVAL()'/><Cell N='GlowColor' V='Themed' F='THEMEVAL()'/><Cell N='GlowColorTrans' V='Themed' F='THEMEVAL()'/><Cell N='GlowSize' V='Themed' F='THEMEVAL()'/><Cell N='SoftEdgesSize' V='Themed' F='THEMEVAL()'/><Cell N='SketchSeed' V='0' F='Inh'/><Cell N='SketchEnabled' V='Themed' F='THEMEVAL()'/><Cell N='SketchAmount' V='Themed' F='THEMEVAL()'/><Cell N='SketchLineWeight' V='Themed' F='THEMEVAL()'/><Cell N='SketchLineChange' V='Themed' F='THEMEVAL()'/><Cell N='SketchFillChange' V='Themed' F='THEMEVAL()'/><Cell N='QuickStyleLineColor' V='100'/><Cell N='QuickStyleFillColor' V='100'/><Cell N='QuickStyleShadowColor' V='100'/><Cell N='QuickStyleFontColor' V='100'/><Cell N='QuickStyleLineMatrix' V='100'/><Cell N='QuickStyleFillMatrix' V='100'/><Cell N='QuickStyleEffectsMatrix' V='100'/><Cell N='QuickStyleFontMatrix' V='100'/><Cell N='QuickStyleType' V='0' F='Inh'/><Cell N='QuickStyleVariation' V='0' F='Inh'/><Cell N='ColorSchemeIndex' V='65534'/><Cell N='EffectSchemeIndex' V='65534'/><Cell N='ConnectorSchemeIndex' V='65534'/><Cell N='FontSchemeIndex' V='65534'/><Cell N='ThemeIndex' V='65534'/><Cell N='VariationColorIndex' V='65534'/><Cell N='VariationStyleIndex' V='65534'/><Cell N='EmbellishmentIndex' V='65534'/><Section N='Character'><Row IX='0'><Cell N='Font' V='Themed' F='THEMEVAL()'/><Cell N='Color' V='Themed' F='THEMEVAL()'/><Cell N='Style' V='Themed' F='THEMEVAL()'/><Cell N='Case' V='0' F='Inh'/><Cell N='Pos' V='0' F='Inh'/><Cell N='FontScale' V='1' F='Inh'/><Cell N='Size' V='0.1666666666666667' F='Inh'/><Cell N='DblUnderline' V='0' F='Inh'/><Cell N='Overline' V='0' F='Inh'/><Cell N='Strikethru' V='0' F='Inh'/><Cell N='DoubleStrikethrough' V='0' F='Inh'/><Cell N='Letterspace' V='0' F='Inh'/><Cell N='ColorTrans' V='0' F='Inh'/><Cell N='AsianFont' V='Themed' F='THEMEVAL()'/><Cell N='ComplexScriptFont' V='Themed' F='THEMEVAL()'/><Cell N='ComplexScriptSize' V='-1' F='Inh'/><Cell N='LangID' V='de-DE' F='Inh'/></Row></Section><Section N='FillGradient'><Row IX='0'><Cell N='GradientStopColor' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopColorTrans' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopPosition' V='Themed' F='THEMEVAL()'/></Row><Row IX='1'><Cell N='GradientStopColor' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopColorTrans' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopPosition' V='Themed' F='THEMEVAL()'/></Row><Row IX='2'><Cell N='GradientStopColor' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopColorTrans' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopPosition' V='Themed' F='THEMEVAL()'/></Row><Row IX='3'><Cell N='GradientStopColor' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopColorTrans' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopPosition' V='Themed' F='THEMEVAL()'/></Row><Row IX='4'><Cell N='GradientStopColor' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopColorTrans' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopPosition' V='Themed' F='THEMEVAL()'/></Row><Row IX='5'><Cell N='GradientStopColor' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopColorTrans' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopPosition' V='Themed' F='THEMEVAL()'/></Row><Row IX='6'><Cell N='GradientStopColor' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopColorTrans' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopPosition' V='Themed' F='THEMEVAL()'/></Row><Row IX='7'><Cell N='GradientStopColor' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopColorTrans' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopPosition' V='Themed' F='THEMEVAL()'/></Row><Row IX='8'><Cell N='GradientStopColor' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopColorTrans' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopPosition' V='Themed' F='THEMEVAL()'/></Row><Row IX='9'><Cell N='GradientStopColor' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopColorTrans' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopPosition' V='Themed' F='THEMEVAL()'/></Row></Section><Section N='LineGradient'><Row IX='0'><Cell N='GradientStopColor' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopColorTrans' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopPosition' V='Themed' F='THEMEVAL()'/></Row><Row IX='1'><Cell N='GradientStopColor' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopColorTrans' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopPosition' V='Themed' F='THEMEVAL()'/></Row><Row IX='2'><Cell N='GradientStopColor' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopColorTrans' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopPosition' V='Themed' F='THEMEVAL()'/></Row><Row IX='3'><Cell N='GradientStopColor' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopColorTrans' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopPosition' V='Themed' F='THEMEVAL()'/></Row><Row IX='4'><Cell N='GradientStopColor' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopColorTrans' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopPosition' V='Themed' F='THEMEVAL()'/></Row><Row IX='5'><Cell N='GradientStopColor' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopColorTrans' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopPosition' V='Themed' F='THEMEVAL()'/></Row><Row IX='6'><Cell N='GradientStopColor' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopColorTrans' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopPosition' V='Themed' F='THEMEVAL()'/></Row><Row IX='7'><Cell N='GradientStopColor' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopColorTrans' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopPosition' V='Themed' F='THEMEVAL()'/></Row><Row IX='8'><Cell N='GradientStopColor' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopColorTrans' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopPosition' V='Themed' F='THEMEVAL()'/></Row><Row IX='9'><Cell N='GradientStopColor' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopColorTrans' V='Themed' F='THEMEVAL()'/><Cell N='GradientStopPosition' V='Themed' F='THEMEVAL()'/></Row></Section></StyleSheet></StyleSheets><DocumentSheet NameU='TheDoc' IsCustomNameU='1' Name='TheDoc' IsCustomName='1' LineStyle='0' FillStyle='0' TextStyle='0'><Cell N='OutputFormat' V='0'/><Cell N='LockPreview' V='0'/><Cell N='AddMarkup' V='0'/><Cell N='ViewMarkup' V='0'/><Cell N='DocLockReplace' V='0' U='BOOL'/><Cell N='NoCoauth' V='0' U='BOOL'/><Cell N='DocLockDuplicatePage' V='0' U='BOOL'/><Cell N='PreviewQuality' V='0'/><Cell N='PreviewScope' V='0'/><Cell N='DocLangID' V='de-DE'/><Section N='User'><Row N='msvNoAutoConnect'><Cell N='Value' V='1'/><Cell N='Prompt' V='' F='No Formula'/></Row></Section></DocumentSheet></VisioDocument>`;
+
+const VSDX_THEME1_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Einfach"><a:themeElements><a:clrScheme name="Einfach"><a:dk1><a:srgbClr val="000000"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1><a:dk2><a:srgbClr val="44546A"/></a:dk2><a:lt2><a:srgbClr val="E7E6E6"/></a:lt2><a:accent1><a:srgbClr val="C05046"/></a:accent1><a:accent2><a:srgbClr val="9DBB61"/></a:accent2><a:accent3><a:srgbClr val="AB9AC0"/></a:accent3><a:accent4><a:srgbClr val="4BACC6"/></a:accent4><a:accent5><a:srgbClr val="F59D56"/></a:accent5><a:accent6><a:srgbClr val="FFC000"/></a:accent6><a:hlink><a:srgbClr val="0563C1"/></a:hlink><a:folHlink><a:srgbClr val="954F72"/></a:folHlink><a:extLst><a:ext uri="{2703A3B3-D2E1-43D9-8057-6E9D74E0F44A}"><vt:schemeID xmlns:vt="http://schemas.microsoft.com/office/visio/2012/theme" schemeEnum="37" schemeGUID="{00000000-0000-0000-0000-000000000000}"/></a:ext><a:ext uri="{093E89EA-6996-430E-BFF9-83A9FAAAAB73}"><vt:bkgnd xmlns:vt="http://schemas.microsoft.com/office/visio/2012/theme"><a:srgbClr val="FFFFFF"/></vt:bkgnd></a:ext><a:ext uri="{DDD2D869-C2EF-471E-B8FA-914AFA308C9F}"><vt:variationClrSchemeLst xmlns:vt="http://schemas.microsoft.com/office/visio/2012/theme"><vt:variationClrScheme monotone="1"><vt:varColor1><a:srgbClr val="000000"/></vt:varColor1><vt:varColor2><a:srgbClr val="C05046"/></vt:varColor2><vt:varColor3><a:srgbClr val="9DBB61"/></vt:varColor3><vt:varColor4><a:srgbClr val="AB9AC0"/></vt:varColor4><vt:varColor5><a:srgbClr val="4BACC6"/></vt:varColor5><vt:varColor6><a:srgbClr val="F59D56"/></vt:varColor6><vt:varColor7><a:srgbClr val="FFC000"/></vt:varColor7></vt:variationClrScheme><vt:variationClrScheme monotone="1"><vt:varColor1><a:srgbClr val="5B9BD5"/></vt:varColor1><vt:varColor2><a:srgbClr val="C05046"/></vt:varColor2><vt:varColor3><a:srgbClr val="9DBB61"/></vt:varColor3><vt:varColor4><a:srgbClr val="AB9AC0"/></vt:varColor4><vt:varColor5><a:srgbClr val="4BACC6"/></vt:varColor5><vt:varColor6><a:srgbClr val="F59D56"/></vt:varColor6><vt:varColor7><a:srgbClr val="FFC000"/></vt:varColor7></vt:variationClrScheme><vt:variationClrScheme><vt:varColor1><a:srgbClr val="000000"/></vt:varColor1><vt:varColor2><a:srgbClr val="7F7F7F"/></vt:varColor2><vt:varColor3><a:srgbClr val="3F3F3F"/></vt:varColor3><vt:varColor4><a:srgbClr val="7F7F7F"/></vt:varColor4><vt:varColor5><a:srgbClr val="C05046"/></vt:varColor5><vt:varColor6><a:srgbClr val="9DBB61"/></vt:varColor6><vt:varColor7><a:srgbClr val="FFC000"/></vt:varColor7></vt:variationClrScheme><vt:variationClrScheme><vt:varColor1><a:srgbClr val="0070C0"/></vt:varColor1><vt:varColor2><a:srgbClr val="00B050"/></vt:varColor2><vt:varColor3><a:srgbClr val="000000"/></vt:varColor3><vt:varColor4><a:srgbClr val="FF0000"/></vt:varColor4><vt:varColor5><a:srgbClr val="FFC000"/></vt:varColor5><vt:varColor6><a:srgbClr val="7030A0"/></vt:varColor6><vt:varColor7><a:srgbClr val="FFFF00"/></vt:varColor7></vt:variationClrScheme></vt:variationClrSchemeLst></a:ext></a:extLst></a:clrScheme><a:fontScheme name="Einfach"><a:majorFont><a:latin typeface="Calibri"/><a:ea typeface=""/><a:cs typeface=""/><a:font script="HANS" typeface="黑体"/><a:font script="HANT" typeface="Microsoft JhengHei"/><a:font script="JPAN" typeface="MS PGothic"/><a:font script="HANG" typeface="Gulim"/><a:font script="ARAB" typeface="Arial"/><a:font script="HEBR" typeface="Arial"/><a:font script="THAI" typeface="Cordia New"/><a:font script="ETHI" typeface="Nyala"/><a:font script="BENG" typeface="Vrinda"/><a:font script="GUJR" typeface="Shruti"/><a:font script="KHMR" typeface="DaunPenh"/><a:font script="KNDA" typeface="Tunga"/><a:font script="GURU" typeface="Raavi"/><a:font script="CANS" typeface="Euphemia"/><a:font script="CHER" typeface="Plantagenet Cherokee"/><a:font script="YIII" typeface="Microsoft Yi Baiti"/><a:font script="TIBT" typeface="Microsoft Himalaya"/><a:font script="THAA" typeface="MV Boli"/><a:font script="DEVA" typeface="Mangal"/><a:font script="TELU" typeface="Gautami"/><a:font script="TAML" typeface="Latha"/><a:font script="SYRC" typeface="Estrangelo Edessa"/><a:font script="ORYA" typeface="Kalinga"/><a:font script="MLYM" typeface="Kartika"/><a:font script="LAOO" typeface="DokChampa"/><a:font script="SINH" typeface="Iskoola Pota"/><a:font script="MONG" typeface="Mongolian Baiti"/><a:font script="VIET" typeface="Times New Roman"/><a:font script="UIGH" typeface="Microsoft Uighur"/><a:font script="GEOR" typeface="Sylfaen"/></a:majorFont><a:minorFont><a:latin typeface="Calibri"/><a:ea typeface=""/><a:cs typeface=""/><a:font script="HANS" typeface="黑体"/><a:font script="HANT" typeface="Microsoft JhengHei"/><a:font script="JPAN" typeface="MS PGothic"/><a:font script="HANG" typeface="Gulim"/><a:font script="ARAB" typeface="Arial"/><a:font script="HEBR" typeface="Arial"/><a:font script="THAI" typeface="Cordia New"/><a:font script="ETHI" typeface="Nyala"/><a:font script="BENG" typeface="Vrinda"/><a:font script="GUJR" typeface="Shruti"/><a:font script="KHMR" typeface="DaunPenh"/><a:font script="KNDA" typeface="Tunga"/><a:font script="GURU" typeface="Raavi"/><a:font script="CANS" typeface="Euphemia"/><a:font script="CHER" typeface="Plantagenet Cherokee"/><a:font script="YIII" typeface="Microsoft Yi Baiti"/><a:font script="TIBT" typeface="Microsoft Himalaya"/><a:font script="THAA" typeface="MV Boli"/><a:font script="DEVA" typeface="Mangal"/><a:font script="TELU" typeface="Gautami"/><a:font script="TAML" typeface="Latha"/><a:font script="SYRC" typeface="Estrangelo Edessa"/><a:font script="ORYA" typeface="Kalinga"/><a:font script="MLYM" typeface="Kartika"/><a:font script="LAOO" typeface="DokChampa"/><a:font script="SINH" typeface="Iskoola Pota"/><a:font script="MONG" typeface="Mongolian Baiti"/><a:font script="VIET" typeface="Times New Roman"/><a:font script="UIGH" typeface="Microsoft Uighur"/><a:font script="GEOR" typeface="Sylfaen"/></a:minorFont><a:extLst><a:ext uri="{B3C0788F-89CC-4CDB-A57D-0664CFDA821B}"><vt:schemeID xmlns:vt="http://schemas.microsoft.com/office/visio/2012/theme" schemeEnum="37" schemeGUID="{00000000-0000-0000-0000-000000000000}"/></a:ext></a:extLst></a:fontScheme><a:fmtScheme name="Einfach"><a:fillStyleLst><a:solidFill><a:schemeClr val="lt1"/></a:solidFill><a:solidFill><a:schemeClr val="lt1"/></a:solidFill><a:solidFill><a:schemeClr val="lt1"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"><a:satMod val="100000"/><a:lumMod val="100000"/></a:schemeClr></a:solidFill><a:solidFill><a:schemeClr val="phClr"><a:satMod val="100000"/><a:lumMod val="100000"/></a:schemeClr></a:solidFill><a:solidFill><a:schemeClr val="phClr"><a:satMod val="100000"/><a:lumMod val="100000"/></a:schemeClr></a:solidFill></a:fillStyleLst><a:lnStyleLst><a:ln w="9525" cap="rnd" cmpd="sng"><a:solidFill><a:schemeClr val="phClr"><a:satMod val="100000"/><a:lumMod val="100000"/></a:schemeClr></a:solidFill><a:prstDash val="solid"/></a:ln><a:ln w="9525" cap="rnd" cmpd="sng"><a:solidFill><a:schemeClr val="phClr"><a:satMod val="100000"/><a:lumMod val="100000"/></a:schemeClr></a:solidFill><a:prstDash val="solid"/></a:ln><a:ln w="28575" cap="rnd" cmpd="sng"><a:solidFill><a:schemeClr val="phClr"><a:satMod val="100000"/><a:lumMod val="100000"/></a:schemeClr></a:solidFill><a:prstDash val="solid"/></a:ln><a:ln w="9525" cap="rnd" cmpd="sng"><a:solidFill><a:schemeClr val="phClr"><a:satMod val="102000"/><a:lumMod val="49000"/></a:schemeClr></a:solidFill><a:prstDash val="solid"/></a:ln><a:ln w="9525" cap="rnd" cmpd="sng"><a:solidFill><a:schemeClr val="phClr"><a:satMod val="102000"/><a:lumMod val="49000"/></a:schemeClr></a:solidFill><a:prstDash val="solid"/></a:ln><a:ln w="28575" cap="rnd" cmpd="sng"><a:solidFill><a:schemeClr val="phClr"><a:satMod val="103000"/><a:lumMod val="133000"/></a:schemeClr></a:solidFill><a:prstDash val="solid"/></a:ln></a:lnStyleLst><a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst><a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"><a:tint val="95000"/><a:satMod val="170000"/></a:schemeClr></a:solidFill><a:gradFill rotWithShape="1"><a:gsLst><a:gs pos="0"><a:schemeClr val="phClr"><a:tint val="93000"/><a:satMod val="150000"/><a:shade val="98000"/><a:lumMod val="102000"/></a:schemeClr></a:gs><a:gs pos="50000"><a:schemeClr val="phClr"><a:tint val="98000"/><a:satMod val="130000"/><a:shade val="90000"/><a:lumMod val="103000"/></a:schemeClr></a:gs><a:gs pos="100000"><a:schemeClr val="phClr"><a:shade val="63000"/><a:satMod val="120000"/></a:schemeClr></a:gs></a:gsLst><a:lin ang="5400000" scaled="0"/></a:gradFill></a:bgFillStyleLst></a:fmtScheme><a:extLst><a:ext uri="{1342405F-259F-4C95-8CDF-A9DCE2D418A2}"><vt:fmtConnectorScheme xmlns:vt="http://schemas.microsoft.com/office/visio/2012/theme" name="Einfach"><a:fillStyleLst><a:solidFill><a:schemeClr val="lt1"/></a:solidFill><a:solidFill><a:schemeClr val="lt1"/></a:solidFill><a:solidFill><a:schemeClr val="lt1"/></a:solidFill></a:fillStyleLst><a:lnStyleLst><a:ln w="3018" cap="rnd" cmpd="sng"><a:solidFill><a:schemeClr val="phClr"><a:satMod val="102000"/><a:lumMod val="74000"/></a:schemeClr></a:solidFill><a:prstDash val="solid"/></a:ln><a:ln w="3018" cap="rnd" cmpd="sng"><a:solidFill><a:schemeClr val="phClr"><a:satMod val="102000"/><a:lumMod val="74000"/></a:schemeClr></a:solidFill><a:prstDash val="solid"/></a:ln><a:ln w="28575" cap="rnd" cmpd="sng"><a:solidFill><a:schemeClr val="phClr"><a:satMod val="102000"/><a:lumMod val="74000"/></a:schemeClr></a:solidFill><a:prstDash val="solid"/></a:ln></a:lnStyleLst><a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst><a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"><a:tint val="95000"/><a:satMod val="170000"/></a:schemeClr></a:solidFill><a:gradFill rotWithShape="1"><a:gsLst><a:gs pos="0"><a:schemeClr val="phClr"><a:tint val="93000"/><a:satMod val="150000"/><a:shade val="98000"/><a:lumMod val="102000"/></a:schemeClr></a:gs><a:gs pos="50000"><a:schemeClr val="phClr"><a:tint val="98000"/><a:satMod val="130000"/><a:shade val="90000"/><a:lumMod val="103000"/></a:schemeClr></a:gs><a:gs pos="100000"><a:schemeClr val="phClr"><a:shade val="63000"/><a:satMod val="120000"/></a:schemeClr></a:gs></a:gsLst><a:lin ang="5400000" scaled="0"/></a:gradFill></a:bgFillStyleLst></vt:fmtConnectorScheme></a:ext><a:ext uri="{D75FF423-9257-4291-A4FE-1B2448832E17}"><vt:themeScheme xmlns:vt="http://schemas.microsoft.com/office/visio/2012/theme"><vt:schemeID schemeEnum="37" schemeGUID="{00000000-0000-0000-0000-000000000000}"/></vt:themeScheme></a:ext><a:ext uri="{27CD58D4-7086-4B73-B2AB-7AEBE2148A8C}"><vt:fmtSchemeEx xmlns:vt="http://schemas.microsoft.com/office/visio/2012/theme"><vt:schemeID schemeEnum="37" schemeGUID="{00000000-0000-0000-0000-000000000000}"/></vt:fmtSchemeEx></a:ext><a:ext uri="{C6430689-8E98-42EC-ADBF-087148533A3F}"><vt:fmtConnectorSchemeEx xmlns:vt="http://schemas.microsoft.com/office/visio/2012/theme"><vt:schemeID schemeEnum="37" schemeGUID="{00000000-0000-0000-0000-000000000000}"/></vt:fmtConnectorSchemeEx></a:ext><a:ext uri="{56243398-1771-4C39-BF73-A5702A9C147F}"><vt:fillStyles xmlns:vt="http://schemas.microsoft.com/office/visio/2012/theme"><vt:fillProps pattern="1"/><vt:fillProps pattern="1"/><vt:fillProps pattern="1"/><vt:fillProps pattern="1"/><vt:fillProps pattern="1"/><vt:fillProps pattern="1"/></vt:fillStyles></a:ext><a:ext uri="{6CAB99AB-0A78-4BAB-B597-526D62367CB4}"><vt:lineStyles xmlns:vt="http://schemas.microsoft.com/office/visio/2012/theme"><vt:fmtConnectorSchemeLineStyles><vt:lineStyle><vt:lineEx rndg="0" start="0" startSize="2" end="0" endSize="2" pattern="1"/></vt:lineStyle><vt:lineStyle><vt:lineEx rndg="0" start="0" startSize="2" end="4" endSize="2" pattern="1"/></vt:lineStyle><vt:lineStyle><vt:lineEx rndg="0" start="0" startSize="2" end="4" endSize="2" pattern="23"/></vt:lineStyle><vt:lineStyle><vt:lineEx rndg="0" start="0" startSize="2" end="4" endSize="1" pattern="1"/></vt:lineStyle></vt:fmtConnectorSchemeLineStyles><vt:fmtSchemeLineStyles><vt:lineStyle><vt:lineEx rndg="0" start="0" startSize="2" end="0" endSize="2" pattern="1"/></vt:lineStyle><vt:lineStyle><vt:lineEx rndg="0" start="0" startSize="2" end="0" endSize="2" pattern="23"/></vt:lineStyle><vt:lineStyle><vt:lineEx rndg="0" start="0" startSize="2" end="0" endSize="2" pattern="1"/></vt:lineStyle><vt:lineStyle><vt:lineEx rndg="0" start="0" startSize="2" end="0" endSize="2" pattern="1"/></vt:lineStyle><vt:lineStyle><vt:lineEx rndg="0" start="0" startSize="2" end="0" endSize="2" pattern="23"/></vt:lineStyle><vt:lineStyle><vt:lineEx rndg="0" start="0" startSize="2" end="0" endSize="2" pattern="1"/></vt:lineStyle><vt:lineStyle><vt:lineEx rndg="0" start="0" startSize="2" end="0" endSize="2" pattern="1"/></vt:lineStyle></vt:fmtSchemeLineStyles></vt:lineStyles></a:ext><a:ext uri="{EBE24D50-EC5C-4D6F-A1A3-C5F0A18B936A}"><vt:fontStylesGroup xmlns:vt="http://schemas.microsoft.com/office/visio/2012/theme"><vt:connectorFontStyles><vt:fontProps style="0"><vt:color><a:schemeClr val="phClr"><a:satMod val="102000"/><a:lumMod val="49000"/></a:schemeClr></vt:color></vt:fontProps><vt:fontProps style="0"><vt:color><a:schemeClr val="phClr"><a:satMod val="102000"/><a:lumMod val="49000"/></a:schemeClr></vt:color></vt:fontProps><vt:fontProps style="0"><vt:color><a:schemeClr val="phClr"><a:satMod val="102000"/><a:lumMod val="49000"/></a:schemeClr></vt:color></vt:fontProps></vt:connectorFontStyles><vt:fontStyles><vt:fontProps style="0"><vt:color><a:schemeClr val="phClr"><a:satMod val="102000"/><a:lumMod val="49000"/></a:schemeClr></vt:color></vt:fontProps><vt:fontProps style="0"><vt:color><a:schemeClr val="phClr"><a:satMod val="102000"/><a:lumMod val="49000"/></a:schemeClr></vt:color></vt:fontProps><vt:fontProps style="0"><vt:color><a:schemeClr val="phClr"><a:satMod val="102000"/><a:lumMod val="49000"/></a:schemeClr></vt:color></vt:fontProps><vt:fontProps style="0"><vt:color><a:schemeClr val="lt1"/></vt:color></vt:fontProps><vt:fontProps style="0"><vt:color><a:schemeClr val="lt1"/></vt:color></vt:fontProps><vt:fontProps style="0"><vt:color><a:schemeClr val="lt1"/></vt:color></vt:fontProps></vt:fontStyles></vt:fontStylesGroup></a:ext><a:ext uri="{494CE47F-D151-47DC-95E8-85652EA8A67E}"><vt:variationStyleSchemeLst xmlns:vt="http://schemas.microsoft.com/office/visio/2012/theme"><vt:variationStyleScheme embellishment="2"><vt:varStyle fillIdx="2" lineIdx="2" effectIdx="2" fontIdx="2"/><vt:varStyle fillIdx="2" lineIdx="2" effectIdx="2" fontIdx="2"/><vt:varStyle fillIdx="2" lineIdx="2" effectIdx="2" fontIdx="2"/><vt:varStyle fillIdx="2" lineIdx="2" effectIdx="2" fontIdx="2"/></vt:variationStyleScheme><vt:variationStyleScheme embellishment="2"><vt:varStyle fillIdx="2" lineIdx="2" effectIdx="2" fontIdx="2"/><vt:varStyle fillIdx="5" lineIdx="5" effectIdx="5" fontIdx="5"/><vt:varStyle fillIdx="3" lineIdx="3" effectIdx="3" fontIdx="3"/><vt:varStyle fillIdx="5" lineIdx="5" effectIdx="5" fontIdx="5"/></vt:variationStyleScheme><vt:variationStyleScheme embellishment="2"><vt:varStyle fillIdx="2" lineIdx="2" effectIdx="2" fontIdx="2"/><vt:varStyle fillIdx="2" lineIdx="2" effectIdx="2" fontIdx="2"/><vt:varStyle fillIdx="3" lineIdx="3" effectIdx="3" fontIdx="3"/><vt:varStyle fillIdx="2" lineIdx="2" effectIdx="2" fontIdx="2"/></vt:variationStyleScheme><vt:variationStyleScheme embellishment="2"><vt:varStyle fillIdx="5" lineIdx="5" effectIdx="5" fontIdx="5"/><vt:varStyle fillIdx="5" lineIdx="5" effectIdx="5" fontIdx="5"/><vt:varStyle fillIdx="2" lineIdx="2" effectIdx="2" fontIdx="2"/><vt:varStyle fillIdx="5" lineIdx="5" effectIdx="5" fontIdx="5"/></vt:variationStyleScheme></vt:variationStyleSchemeLst></a:ext></a:extLst></a:themeElements><a:objectDefaults/><a:extraClrSchemeLst/></a:theme>`;
+
+function windowsXml(Win, Hin){
+  const cx=(Win/2).toFixed(4), cy=(Hin/2).toFixed(4);
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n`+
+    `<Windows ClientWidth="1438" ClientHeight="610" xmlns="http://schemas.microsoft.com/office/visio/2012/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xml:space="preserve">`+
+    `<Window ID="0" WindowType="Drawing" WindowState="268435456" WindowLeft="0" WindowTop="0" WindowWidth="1438" WindowHeight="610" ContainerType="Page" Page="0" ViewScale="-1" ViewCenterX="${cx}" ViewCenterY="${cy}">`+
+    `<ShowRulers>1</ShowRulers><ShowGrid>1</ShowGrid><ShowPageBreaks>1</ShowPageBreaks><ShowGuides>1</ShowGuides><ShowConnectionPoints>1</ShowConnectionPoints>`+
+    `<GlueSettings>9</GlueSettings><SnapSettings>65847</SnapSettings><SnapExtensions>34</SnapExtensions><SnapAngles/><DynamicGridEnabled>1</DynamicGridEnabled><TabSplitterPos>0.5</TabSplitterPos>`+
+    `</Window></Windows>`;
+}
+function docPropsApp(pageName){
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n`+
+    `<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">`+
+    `<Template></Template><Application>Microsoft Visio</Application><ScaleCrop>false</ScaleCrop>`+
+    `<HeadingPairs><vt:vector size="2" baseType="variant"><vt:variant><vt:lpstr>Zeichenblätter</vt:lpstr></vt:variant><vt:variant><vt:i4>1</vt:i4></vt:variant></vt:vector></HeadingPairs>`+
+    `<TitlesOfParts><vt:vector size="1" baseType="lpstr"><vt:lpstr>${xmlEsc(pageName)}</vt:lpstr></vt:vector></TitlesOfParts>`+
+    `<Manager></Manager><Company></Company><LinksUpToDate>false</LinksUpToDate><SharedDoc>false</SharedDoc><HyperlinkBase></HyperlinkBase><HyperlinksChanged>false</HyperlinksChanged><AppVersion>16.0000</AppVersion>`+
+    `</Properties>`;
+}
+function docPropsCore(title, isoNow){
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n`+
+    `<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">`+
+    `<dc:title>${xmlEsc(title)}</dc:title><dc:subject></dc:subject><dc:creator>Visio Prozess-Generator</dc:creator><cp:keywords></cp:keywords><dc:description></dc:description><cp:lastModifiedBy>Visio Prozess-Generator</cp:lastModifiedBy>`+
+    `<dcterms:created xsi:type="dcterms:W3CDTF">${isoNow}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${isoNow}</dcterms:modified><cp:category></cp:category><dc:language>de-DE</dc:language>`+
+    `</cp:coreProperties>`;
+}
+function buildVsdx(model, L){
+  const PX=96; // px pro Zoll
+  const Win = L.pageW/PX, Hin = L.pageH/PX;
+  const toX = px => (px/PX).toFixed(4);
+  const toY = py => ((L.pageH-py)/PX).toFixed(4);  // y nach oben
+  let id=1; const shapesXml=[];
+
+  // Lanes als Hintergrund-Rechtecke
+  L.lanes.forEach((lane,li)=>{
+    const top=L.laneTop[li], h=L.laneHeight[li];
+    const cx=(G.HEADER_W + (L.pageW-G.HEADER_W)/2), cy=top+h/2;
+    const w=(L.pageW-G.HEADER_W), hh=h;
+    shapesXml.push(rectShape(id++, cx, cy, w, hh, '#F5F8FD', '#C9D3E2', lane, true));
+  });
+  // Knoten: je Typ die passende, in Visio bearbeitbare Geometrie.
+  L.nodes.forEach(n=>{
+    shapesXml.push(nodeShapeVsdx(id++, n));
+  });
+  // Verbinder als Linien - gleiche Auffaecherung + Hindernis-Umgehung wie in der Vorschau
+  const outMap = {}, inMap = {};
+  L.edges.forEach(e=>{ (outMap[e.from]=outMap[e.from]||[]).push(e); (inMap[e.to]=inMap[e.to]||[]).push(e); });
+  L.edges.forEach(e=>{
+    const s=L.byId[e.from], t=L.byId[e.to];
+    const sOff = fanOffset(outMap[e.from].indexOf(e), outMap[e.from].length);
+    const eOff = fanOffset(inMap[e.to].indexOf(e), inMap[e.to].length);
+    const a=anchors(s,t,sOff,eOff);
+    const pts=routeEdge(s,t,a,L);
+    shapesXml.push(lineShape(id++, pts, e.label||''));
+  });
+
+  function rectShape(sid, cx, cy, w, h, fill, line, text, isLane, isDiamond){
+    const Win2=(w/PX).toFixed(4), Hin2=(h/PX).toFixed(4);
+    const geomRows = isDiamond
+      ? `<Row T="RelMoveTo" IX="1"><Cell N="X" V="0.5"/><Cell N="Y" V="0"/></Row>`+
+        `<Row T="RelLineTo" IX="2"><Cell N="X" V="1"/><Cell N="Y" V="0.5"/></Row>`+
+        `<Row T="RelLineTo" IX="3"><Cell N="X" V="0.5"/><Cell N="Y" V="1"/></Row>`+
+        `<Row T="RelLineTo" IX="4"><Cell N="X" V="0"/><Cell N="Y" V="0.5"/></Row>`+
+        `<Row T="RelLineTo" IX="5"><Cell N="X" V="0.5"/><Cell N="Y" V="0"/></Row>`
+      : `<Row T="RelMoveTo" IX="1"><Cell N="X" V="0"/><Cell N="Y" V="0"/></Row>`+
+        `<Row T="RelLineTo" IX="2"><Cell N="X" V="1"/><Cell N="Y" V="0"/></Row>`+
+        `<Row T="RelLineTo" IX="3"><Cell N="X" V="1"/><Cell N="Y" V="1"/></Row>`+
+        `<Row T="RelLineTo" IX="4"><Cell N="X" V="0"/><Cell N="Y" V="1"/></Row>`+
+        `<Row T="RelLineTo" IX="5"><Cell N="X" V="0"/><Cell N="Y" V="0"/></Row>`;
+    return `<Shape ID="${sid}" Type="Shape" LineStyle="0" FillStyle="0" TextStyle="0">`+
+      `<Cell N="PinX" V="${toX(cx)}"/><Cell N="PinY" V="${toY(cy)}"/>`+
+      `<Cell N="Width" V="${Win2}"/><Cell N="Height" V="${Hin2}"/>`+
+      `<Cell N="LocPinX" V="${(w/PX/2).toFixed(4)}"/><Cell N="LocPinY" V="${(h/PX/2).toFixed(4)}"/>`+
+      `<Cell N="FillForegnd" V="${fill}"/><Cell N="LineColor" V="${line}"/><Cell N="FillPattern" V="1"/>`+
+      (isLane?`<Cell N="LinePattern" V="1"/><Cell N="VerticalAlign" V="0"/>`:``)+
+      `<Section N="Geometry" IX="0"><Cell N="NoFill" V="0"/><Cell N="NoLine" V="0"/>`+
+        geomRows+
+      `</Section>`+
+      `<Text>${xmlEsc(text)}</Text></Shape>`;
+  }
+  // Geometrie als Polygon aus Bruchteil-Koordinaten (0..1, Ursprung unten links, Y nach oben).
+  function poly(points){
+    return points.map((p,i)=>`<Row T="${i===0?'RelMoveTo':'RelLineTo'}" IX="${i+1}"><Cell N="X" V="${p[0].toFixed(4)}"/><Cell N="Y" V="${p[1].toFixed(4)}"/></Row>`).join('');
+  }
+  // Symboltreue, in Visio direkt editierbare Formen je Knotentyp.
+  function nodeShapeVsdx(sid, n){
+    const [fill,line]=hexFor(n.type);
+    const w=n.w, h=n.h;
+    const Win2=(w/PX).toFixed(4), Hin2=(h/PX).toFixed(4);
+    let geom, rounding=0;
+    if(n.type==='decision'){
+      geom = poly([[0.5,0],[1,0.5],[0.5,1],[0,0.5],[0.5,0]]);              // Raute
+    }else if(n.type==='start'||n.type==='end'){
+      geom = poly([[0,0],[1,0],[1,1],[0,1],[0,0]]); rounding = (h/PX/2);    // Terminator (Stadion via Rounding)
+    }else if(n.type==='io'){
+      const s=0.18; geom = poly([[s,1],[1,1],[1-s,0],[0,0],[s,1]]);        // Parallelogramm (Daten)
+    }else if(n.type==='connector'){
+      geom = `<Row T="Ellipse" IX="1"><Cell N="X" V="0.5"/><Cell N="Y" V="0.5"/><Cell N="A" V="1"/><Cell N="B" V="0.5"/><Cell N="C" V="0.5"/><Cell N="D" V="0"/></Row>`; // Kreis
+    }else if(n.type==='document'){
+      const N=8, base=0.14, amp=0.11; const pts=[[0,1],[1,1]];             // Dokument (gewellte Unterkante)
+      for(let i=0;i<=N;i++){ const x=1-i/N, y=base+amp*Math.sin(i/N*Math.PI*2); pts.push([x,y]); }
+      pts.push([0,1]); geom = poly(pts);
+    }else{
+      geom = poly([[0,0],[1,0],[1,1],[0,1],[0,0]]);                        // Prozess / Teilprozess / Fallback: Rechteck
+    }
+    let sections = `<Section N="Geometry" IX="0"><Cell N="NoFill" V="0"/><Cell N="NoLine" V="0"/>${geom}</Section>`;
+    if(n.type==='subprocess'){
+      // Zwei senkrechte Seitenbalken als eigene Linien-Geometrien (Teilprozess-Symbol).
+      sections += `<Section N="Geometry" IX="1"><Cell N="NoFill" V="1"/><Cell N="NoLine" V="0"/><Row T="RelMoveTo" IX="1"><Cell N="X" V="0.08"/><Cell N="Y" V="0"/></Row><Row T="RelLineTo" IX="2"><Cell N="X" V="0.08"/><Cell N="Y" V="1"/></Row></Section>`;
+      sections += `<Section N="Geometry" IX="2"><Cell N="NoFill" V="1"/><Cell N="NoLine" V="0"/><Row T="RelMoveTo" IX="1"><Cell N="X" V="0.92"/><Cell N="Y" V="0"/></Row><Row T="RelLineTo" IX="2"><Cell N="X" V="0.92"/><Cell N="Y" V="1"/></Row></Section>`;
+    }
+    return `<Shape ID="${sid}" Type="Shape" LineStyle="0" FillStyle="0" TextStyle="0">`+
+      `<Cell N="PinX" V="${toX(n.x)}"/><Cell N="PinY" V="${toY(n.y)}"/>`+
+      `<Cell N="Width" V="${Win2}"/><Cell N="Height" V="${Hin2}"/>`+
+      `<Cell N="LocPinX" V="${(w/PX/2).toFixed(4)}"/><Cell N="LocPinY" V="${(h/PX/2).toFixed(4)}"/>`+
+      `<Cell N="FillForegnd" V="${fill}"/><Cell N="LineColor" V="${line}"/><Cell N="FillPattern" V="1"/>`+
+      (rounding?`<Cell N="Rounding" V="${rounding.toFixed(4)}"/>`:``)+
+      sections+
+      `<Text>${xmlEsc(n.label)}</Text></Shape>`;
+  }
+  function lineShape(sid, points, text){
+    // Ein 1-D-Shape leitet PinX/PinY/Width/Height/Angle in echten Visio-Dateien per
+    // GUARD()-Formel von seiner Verbinder-Master-Vorlage aus Begin/End ab. Unsere
+    // Shapes haben keinen Master, also fehlen diese Formeln. Da Verbinder jetzt
+    // mehrsegmentige Ausweich-Pfade sein koennen (nicht nur eine gerade Linie),
+    // spannen wir stattdessen ein achsparalleles Bounding-Box-Koordinatensystem
+    // auf (Angle=0) und platzieren jeden Punkt als Bruchteil von Width/Height -
+    // das reduziert sich fuer eine einfache 2-Punkt-Linie exakt auf deren Verlauf.
+    const pts = points.map(([px,py])=>[px/PX, (L.pageH-py)/PX]);
+    const xs=pts.map(p=>p[0]), ys=pts.map(p=>p[1]);
+    const minX=Math.min(...xs), maxX=Math.max(...xs), minY=Math.min(...ys), maxY=Math.max(...ys);
+    const spanX=maxX-minX, spanY=maxY-minY;
+    const width=Math.max(spanX,0.001), height=Math.max(spanY,0.001);
+    const fx = x => (spanX>0.0001 ? (x-minX)/spanX : 0).toFixed(4);
+    const fy = y => (spanY>0.0001 ? (y-minY)/spanY : 0).toFixed(4);
+    const pinX=(minX+maxX)/2, pinY=(minY+maxY)/2;
+    const rows = pts.map((p,i)=> `<Row T="${i===0?'RelMoveTo':'RelLineTo'}" IX="${i+1}"><Cell N="X" V="${fx(p[0])}"/><Cell N="Y" V="${fy(p[1])}"/></Row>`).join('');
+    return `<Shape ID="${sid}" Type="Shape" LineStyle="0" FillStyle="0" TextStyle="0">`+
+      `<Cell N="PinX" V="${pinX.toFixed(4)}"/><Cell N="PinY" V="${pinY.toFixed(4)}"/>`+
+      `<Cell N="Width" V="${width.toFixed(4)}"/><Cell N="Height" V="${height.toFixed(4)}"/>`+
+      `<Cell N="LocPinX" V="${(width/2).toFixed(4)}"/><Cell N="LocPinY" V="${(height/2).toFixed(4)}"/>`+
+      `<Cell N="Angle" V="0"/>`+
+      `<Cell N="BeginX" V="${pts[0][0].toFixed(4)}"/><Cell N="BeginY" V="${pts[0][1].toFixed(4)}"/>`+
+      `<Cell N="EndX" V="${pts[pts.length-1][0].toFixed(4)}"/><Cell N="EndY" V="${pts[pts.length-1][1].toFixed(4)}"/>`+
+      `<Cell N="LineColor" V="#5A5A5A"/><Cell N="LineWeight" V="0.01041666666666667"/><Cell N="EndArrow" V="5"/><Cell N="EndArrowSize" V="1"/>`+
+      `<Section N="Geometry" IX="0"><Cell N="NoFill" V="1"/><Cell N="NoLine" V="0"/>`+
+        rows+
+      `</Section>`+ (text?`<Text>${xmlEsc(text)}</Text>`:``) +`</Shape>`;
+  }
+
+  const page1 = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n`+
+    `<PageContents xmlns="http://schemas.microsoft.com/office/visio/2012/main" xml:space="preserve">`+
+    `<Shapes>${shapesXml.join('')}</Shapes></PageContents>`;
+
+  const pages = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n`+
+    `<Pages xmlns="http://schemas.microsoft.com/office/visio/2012/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xml:space="preserve">`+
+    `<Page ID="0" NameU="Seite-1" Name="Seite-1" ViewScale="-1" ViewCenterX="${(Win/2).toFixed(4)}" ViewCenterY="${(Hin/2).toFixed(4)}">`+
+    `<PageSheet LineStyle="0" FillStyle="0" TextStyle="0">`+
+      `<Cell N="PageWidth" V="${Win.toFixed(4)}"/><Cell N="PageHeight" V="${Hin.toFixed(4)}"/>`+
+      `<Cell N="DrawingScale" V="1"/><Cell N="DrawingSizeType" V="3"/><Cell N="DrawingScaleType" V="0"/>`+
+      `<Cell N="ColorSchemeIndex" V="37"/><Cell N="EffectSchemeIndex" V="37"/><Cell N="ConnectorSchemeIndex" V="37"/><Cell N="FontSchemeIndex" V="37"/><Cell N="ThemeIndex" V="37"/>`+
+    `</PageSheet>`+
+    `<Rel r:id="rId1"/></Page></Pages>`;
+
+  const isoNow = new Date().toISOString();
+  const winXml = windowsXml(Win, Hin);
+  const appXml = docPropsApp(model.title||'Seite-1');
+  const coreXml = docPropsCore(model.title||'Prozess', isoNow);
+
+  const ct = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n`+
+    `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">`+
+    `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>`+
+    `<Default Extension="xml" ContentType="application/xml"/>`+
+    `<Override PartName="/visio/document.xml" ContentType="application/vnd.ms-visio.drawing.main+xml"/>`+
+    `<Override PartName="/visio/pages/pages.xml" ContentType="application/vnd.ms-visio.pages+xml"/>`+
+    `<Override PartName="/visio/pages/page1.xml" ContentType="application/vnd.ms-visio.page+xml"/>`+
+    `<Override PartName="/visio/windows.xml" ContentType="application/vnd.ms-visio.windows+xml"/>`+
+    `<Override PartName="/visio/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>`+
+    `<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>`+
+    `<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>`+
+    `</Types>`;
+
+  const rels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n`+
+    `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">`+
+    `<Relationship Id="rId1" Type="http://schemas.microsoft.com/visio/2010/relationships/document" Target="visio/document.xml"/>`+
+    `<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>`+
+    `<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>`+
+    `</Relationships>`;
+  const docRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n`+
+    `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">`+
+    `<Relationship Id="rId1" Type="http://schemas.microsoft.com/visio/2010/relationships/pages" Target="pages/pages.xml"/>`+
+    `<Relationship Id="rId2" Type="http://schemas.microsoft.com/visio/2010/relationships/windows" Target="windows.xml"/>`+
+    `<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="theme/theme1.xml"/>`+
+    `</Relationships>`;
+  const pagesRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n`+
+    `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">`+
+    `<Relationship Id="rId1" Type="http://schemas.microsoft.com/visio/2010/relationships/page" Target="page1.xml"/>`+
+    `</Relationships>`;
+
+  const entries = [
+    {name:'[Content_Types].xml', data:enc(ct)},
+    {name:'_rels/.rels', data:enc(rels)},
+    {name:'docProps/core.xml', data:enc(coreXml)},
+    {name:'docProps/app.xml', data:enc(appXml)},
+    {name:'visio/document.xml', data:enc(VSDX_DOCUMENT_XML)},
+    {name:'visio/windows.xml', data:enc(winXml)},
+    {name:'visio/theme/theme1.xml', data:enc(VSDX_THEME1_XML)},
+    {name:'visio/_rels/document.xml.rels', data:enc(docRels)},
+    {name:'visio/pages/pages.xml', data:enc(pages)},
+    {name:'visio/pages/_rels/pages.xml.rels', data:enc(pagesRels)},
+    {name:'visio/pages/page1.xml', data:enc(page1)}
+  ];
+  return buildZip(entries);
+}
+function exportVSDX(){
+  if(!currentLayout) return;
+  try{
+    const bytes = buildVsdx(currentModel, currentLayout);
+    download((currentModel.title||'prozess')+'.vsdx', bytes, 'application/vnd.ms-visio.drawing');
+    addMsg('VSDX exportiert. In Visio ist die Datei jetzt direkt bearbeitbar (Formen, Text, Farben lassen sich wie gewohnt anpassen). Alternativ öffnet sie auch in draw.io (kostenlos).','sys');
+  }catch(e){ addMsg('VSDX-Export fehlgeschlagen: '+e.message,'err'); }
+}
+
+/* ====================== Status-Hinweis ====================== */
+function updateKeyHint(){
+  if(isProxy()){ $('keyHint').textContent = 'Lokaler Proxy aktiv — Key liegt im Backend (start.py). Modell: '+settings.model; return; }
+  $('keyHint').textContent = 'Direktmodus — App über "python start.py" starten, damit der Backend-Key genutzt wird.';
+}
+
+/* ====================== Beispiel & Leeren ====================== */
+function insertExample(){
+  input.value = settings.diagramType==='flow'
+    ? 'Rechnungsprüfung: Eine Rechnung geht ein. Der Sachbearbeiter prüft, ob der Betrag mit der Bestellung übereinstimmt. Falls ja, wird die Rechnung freigegeben und zur Zahlung weitergeleitet; falls nein, wird eine Rückfrage an den Lieferanten gestellt und nach der Korrektur erneut geprüft. Nach der Zahlung wird der Vorgang archiviert.'
+    : 'Bestellprozess: Der Kunde gibt eine Bestellung auf. Das Lager prüft die Verfügbarkeit. Ist die Ware verfügbar, kommissioniert das Lager und der Versand verschickt das Paket; andernfalls löst der Einkauf eine Nachbestellung aus und informiert den Kunden. Nach dem Versand wird der Vorgang abgeschlossen.';
+  input.focus();
+}
+function clearAll(){
+  if(busy) return;
+  const hasWork = currentModel || chatHistory.length > 1;
+  if(hasWork && !confirm('Wirklich alles leeren? Das aktuelle Diagramm und der Chatverlauf werden gelöscht.')) return;
+  currentModel=null; currentLayout=null; apiMessages=[]; chatHistory=[];
+  while(svg.firstChild) svg.removeChild(svg.firstChild);
+  svg.setAttribute('width',900); svg.setAttribute('height',500); svg.setAttribute('viewBox','0 0 900 500');
+  $('empty').style.display='grid';
+  $('btnSvg').disabled=$('btnVsdx').disabled=$('btnJson').disabled=true;
+  log.innerHTML='';
+  try{ localStorage.removeItem(P.chat); localStorage.removeItem(P.api); localStorage.removeItem(P.model); }catch(e){}
+  addMsg(GREETING,'bot');
+  setStatus('Bereit');
+}
+
+/* ====================== Events ====================== */
+$('send').onclick = handleSend;
+input.addEventListener('keydown', e=>{ if((e.ctrlKey||e.metaKey) && e.key==='Enter'){ e.preventDefault(); handleSend(); }});
+$('btnExample').onclick = insertExample;
+$('btnClear').onclick = clearAll;
+$('btnSvg').onclick = exportSVG;
+$('btnJson').onclick = exportJSON;
+$('btnVsdx').onclick = exportVSDX;
+$('zIn').onclick = ()=>{ zoom=Math.min(zoom*1.2,3); applyZoom(); };
+$('zOut').onclick = ()=>{ zoom=Math.max(zoom/1.2,0.2); applyZoom(); };
+$('zFit').onclick = fitZoom;
+
+// Diagrammtyp-Umschalter: merkt die Auswahl und wirkt auf die nächste Generierung.
+$('modeSel').onchange = e=>{
+  settings.diagramType = e.target.value;
+  try{ localStorage.setItem(LS.diag, settings.diagramType); }catch(_){}
+  addMsg(settings.diagramType==='flow'
+    ? 'Modus: klassisches Flussdiagramm (ISO 5807/DIN 66001, ohne Swimlanes). Die nächste Beschreibung wird als Flussdiagramm gebaut.'
+    : 'Modus: Swimlane / BPMN (Rollen als Bänder). Die nächste Beschreibung wird mit Swimlanes gebaut.','sys');
+  updateKeyHint();
+};
+
+restoreState();
+// Umschalter mit dem tatsächlich aktiven Modus (aus Einstellungen bzw. wiederhergestelltem Modell) synchronisieren.
+$('modeSel').value = settings.diagramType;
+if(chatHistory.length === 0){ addMsg(GREETING,'bot'); }
+updateKeyHint();
+</script>
+</body>
+</html>
